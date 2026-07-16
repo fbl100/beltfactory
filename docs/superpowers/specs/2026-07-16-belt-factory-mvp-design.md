@@ -117,7 +117,7 @@ Dockerfile
 
 ## The MVP Level
 
-- Small grid (e.g. 8×8).
+- Roomy grid to leave space for routing — the dimensions are **level data**, not an engine limit. Start around **20×14** and tune to taste; the renderer viewport pans/scales to fit whatever the level declares.
 - One or two **extractors** emitting fixed base numbers (addition-phase values, 1–9 range).
 - Player places **belts** to route items and one **operator** machine (addition) that takes two inputs → emits `a + b`.
 - One **target/sink** with a goal number (5–30 range). Delivering an item equal to the target = success.
@@ -137,7 +137,7 @@ Dockerfile
   "version": 1,
   "levelId": "mvp-1",
   "tick": 1234,
-  "grid": { "width": 8, "height": 8, "cells": [ /* entity placements */ ] },
+  "grid": { "width": 20, "height": 14, "cells": [ /* entity placements */ ] },
   "items": [ { "value": "7", "cell": [3,4], "slot": 2 } /* BigInt as string */ ]
 }
 ```
