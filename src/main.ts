@@ -7,19 +7,34 @@ import { serialize, deserialize } from './sim/save';
 import { step, TICKS_PER_SECOND } from './sim/tick';
 import type { GameState } from './sim/grid';
 import type { Direction } from './sim/grid';
-import { placeBelt, removeCell } from './input/place';
+import { paintBeltLine, eraseBeltLine } from './input/place';
 import { showLogin } from './ui/login';
 import { createHud } from './ui/hud';
 import { apiMe, apiGetState, apiSaveState } from './net/api';
 
 const parent = document.getElementById('app')!;
 
+// Be forgiving: a corrupt / truncated / incompatible save must never brick the game
+// (blank screen). Fall back to a fresh world instead of throwing.
+function loadOrNewGame(saved: string | null): GameState {
+  if (saved) {
+    try {
+      const s = deserialize(saved);
+      if (Array.isArray(s.items) && s.cells instanceof Map && s.loadedChunks instanceof Set) return s;
+    } catch {
+      // unreadable save -> start fresh
+    }
+    console.warn('Ignoring an unreadable save; starting a new game.');
+  }
+  return newGame(Date.now() >>> 0, mvpGenerator);
+}
+
 async function boot() {
   if (!(await apiMe())) await showLogin(parent);
 
   const saved = await apiGetState();
   // A new game seeds from the current clock; resumed games keep their saved seed.
-  const state: GameState = saved ? deserialize(saved) : newGame(Date.now() >>> 0, mvpGenerator);
+  const state: GameState = loadOrNewGame(saved);
 
   let theme: Theme = DEFAULT_THEME;
   const renderer = createPixiRenderer(parent);
@@ -33,14 +48,31 @@ async function boot() {
 
   // --- input: place/remove belts, pan (arrows), zoom (wheel) ---
   const canvas = renderer['app'].canvas as HTMLCanvasElement;
-  canvas.addEventListener('mousedown', (e) => {
+  const cellOf = (e: MouseEvent) => {
     const r = canvas.getBoundingClientRect();
-    const { x, y } = renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
-    if (e.button === 2) removeCell(state, x, y);
-    else placeBelt(state, x, y, placeDir);
-    dirty = true;
-    e.preventDefault();
+    return renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
+  };
+  // Click-and-drag to paint a belt run (belts orient along the drag); right-drag erases.
+  let paintMode: 'place' | 'erase' | null = null;
+  let lastCell: { x: number; y: number } | null = null;
+  canvas.addEventListener('mousedown', (e) => {
+    const c = cellOf(e);
+    paintMode = e.button === 2 ? 'erase' : 'place';
+    if (paintMode === 'erase') eraseBeltLine(state, c.x, c.y, c.x, c.y);
+    else paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir);
+    lastCell = c; dirty = true; e.preventDefault();
   });
+  canvas.addEventListener('mousemove', (e) => {
+    if (!paintMode || !lastCell) return;
+    const c = cellOf(e);
+    if (c.x === lastCell.x && c.y === lastCell.y) return;
+    if (paintMode === 'erase') eraseBeltLine(state, lastCell.x, lastCell.y, c.x, c.y);
+    else paintBeltLine(state, lastCell.x, lastCell.y, c.x, c.y, placeDir);
+    lastCell = c; dirty = true;
+  });
+  const endPaint = () => { paintMode = null; lastCell = null; };
+  window.addEventListener('mouseup', endPaint);
+  canvas.addEventListener('mouseleave', endPaint);
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('wheel', (e) => {
     cam.zoom = Math.max(12, Math.min(96, cam.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
@@ -56,9 +88,10 @@ async function boot() {
 
   // --- fixed-timestep sim loop + rAF render ---
   const tickMs = 1000 / TICKS_PER_SECOND;
+  const MAX_CATCHUP = tickMs * 5; // avoid a tick "spiral of death" after the tab is backgrounded
   let acc = 0, last = performance.now(), dirty = false;
   function frame(now: number) {
-    acc += now - last; last = now;
+    acc = Math.min(acc + (now - last), MAX_CATCHUP); last = now;
     while (acc >= tickMs) { step(state); acc -= tickMs; dirty = true; }
     // stream in any chunks the camera can now see (empty land for MVP)
     const cr = renderer.visibleChunkRange();
@@ -76,4 +109,7 @@ async function boot() {
   });
 }
 
-boot();
+boot().catch((err) => {
+  console.error('Belt Factory failed to start', err);
+  parent.textContent = 'Something went wrong starting the game. Please refresh.';
+});

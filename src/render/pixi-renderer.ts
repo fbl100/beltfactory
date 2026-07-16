@@ -10,6 +10,10 @@ export class PixiRenderer implements Renderer {
   private theme!: Theme;
   private layer = new Container();
   private cam: Camera = { x: 8, y: 6, zoom: 44 };
+  // Persistent draw objects reused every frame (cleared, not recreated) so we
+  // don't leak Graphics geometry / Text glyph textures on a long-running tab.
+  private cellG = new Graphics();
+  private itemG = new Graphics();
   private texts: Text[] = [];
 
   constructor(parent: HTMLElement) { this.parent = parent; }
@@ -19,6 +23,9 @@ export class PixiRenderer implements Renderer {
     await this.app.init({ background: theme.background, resizeTo: this.parent, antialias: true });
     this.parent.appendChild(this.app.canvas);
     this.app.stage.addChild(this.layer);
+    // z-order: cells (grid + squares) under item circles under number labels.
+    this.layer.addChild(this.cellG);
+    this.layer.addChild(this.itemG);
   }
   setTheme(theme: Theme): void { this.theme = theme; this.app.renderer.background.color = theme.background; }
   setCamera(cam: Camera): void { this.cam = cam; }
@@ -55,16 +62,15 @@ export class PixiRenderer implements Renderer {
 
   draw(state: GameState, alpha: number): void {
     const t = this.theme, cs = this.cam.zoom;
-    this.layer.removeChildren();
     const r = this.visibleCellRange();
 
-    // grid lines
-    const g = new Graphics();
+    // grid lines + cell squares (reused Graphics)
+    const g = this.cellG;
+    g.clear();
     for (let x = r.minX; x <= r.maxX; x++) g.rect(this.sx(x), this.sy(r.minY), 1, (r.maxY - r.minY) * cs);
     for (let y = r.minY; y <= r.maxY; y++) g.rect(this.sx(r.minX), this.sy(y), (r.maxX - r.minX) * cs, 1);
     g.fill(t.grid);
 
-    // cell squares (visible only)
     for (let y = r.minY; y <= r.maxY; y++) {
       for (let x = r.minX; x <= r.maxX; x++) {
         const cell = cellAt(state, x, y);
@@ -76,29 +82,29 @@ export class PixiRenderer implements Renderer {
         if (cell.type === 'belt') g.roundRect(px, py, sz, sz, t.cornerRadius).stroke({ width: 2, color: t.beltEdge });
       }
     }
-    this.layer.addChild(g);
 
-    // item circles (under labels)
-    const ig = new Graphics();
+    // item circles under labels (reused Graphics)
+    const ig = this.itemG;
+    ig.clear();
     for (const it of state.items) {
       const ix = it.px + (it.x - it.px) * alpha, iy = it.py + (it.y - it.py) * alpha;
       const px = this.sx(ix) + cs / 2, py = this.sy(iy) + cs / 2, rad = cs * 0.32;
       if (t.glow) ig.circle(px, py, rad + 4).fill({ color: t.item, alpha: 0.25 });
       ig.circle(px, py, rad).fill(t.item);
     }
-    this.layer.addChild(ig);
 
     // labels on top (pooled text): machine values + item values
     let ti = 0;
     const size = Math.max(10, Math.round(cs * 0.4));
     const label = (text: string, cxp: number, cyp: number, fill: number) => {
-      const txt = this.texts[ti] ?? new Text({ text: '' });
-      this.texts[ti] = txt; ti++;
+      let txt = this.texts[ti];
+      if (!txt) { txt = new Text({ text: '' }); this.texts[ti] = txt; this.layer.addChild(txt); }
+      ti++;
+      txt.visible = true;
       txt.text = text;
       txt.anchor.set(0.5);
       txt.x = cxp; txt.y = cyp;
       txt.style = { fill, fontSize: size, fontFamily: 'system-ui', fontWeight: 'bold' } as any;
-      this.layer.addChild(txt);
     };
     for (let y = r.minY; y <= r.maxY; y++) {
       for (let x = r.minX; x <= r.maxX; x++) {
@@ -112,8 +118,8 @@ export class PixiRenderer implements Renderer {
       const ix = it.px + (it.x - it.px) * alpha, iy = it.py + (it.y - it.py) * alpha;
       label(String(it.value), this.sx(ix) + cs / 2, this.sy(iy) + cs / 2, t.itemText);
     }
-    // drop any pooled text beyond what we used this frame
-    this.texts.length = ti;
+    // Hide pooled text we didn't use this frame (kept for reuse — not destroyed/dropped).
+    for (let k = ti; k < this.texts.length; k++) this.texts[k].visible = false;
   }
 }
 
