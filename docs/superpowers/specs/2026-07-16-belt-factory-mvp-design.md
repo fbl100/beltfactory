@@ -29,10 +29,21 @@ Chosen over Canvas 2D and DOM/CSS.
 
 The renderer is the most swappable part of the system because the simulation is pure. We formalize that boundary:
 
-- `Renderer` interface: `init(theme)`, `draw(simState, alpha)`, `setTheme(theme)`, `resize(w, h)`, `destroy()`.
+- `Renderer` interface: `init(theme)`, `draw(simState, alpha)`, `setTheme(theme)`, `setCamera(cam)`, `screenToWorld(px, py)`, `visibleChunkRange()`, `resize(w, h)`, `destroy()`.
   - `alpha` is the interpolation factor (0..1) between the previous and current tick, so rendering can smoothly interpolate item positions between discrete ticks.
+  - The renderer owns a **camera** (`{ x, y, zoom }`, world-cell coords + pixels-per-cell) because the world is unbounded (see World Model). It draws only visible cells, exposes `screenToWorld` for input mapping, and `visibleChunkRange` so the main loop knows which chunks to stream in.
 - A `PixiRenderer` implements it for the MVP. A different renderer (or a batched-sprite optimization) can drop in behind the same interface without touching sim, content, or UI.
 - `Theme` config object supplies all colors, shapes, corner radii, fonts, and effect flags. The renderer reads visuals only from the theme; no hardcoded colors in draw code.
+
+### World model: unbounded, sparse, chunked (Minecraft-style)
+
+The world has **no fixed dimensions**. This removes the arbitrary grid limit at the source and gives the "start in an area and expand" feel.
+
+- **Sparse storage:** cells live in a `Map<"x,y", Cell>` with unbounded (including negative) integer coordinates. There is no `width`/`height`.
+- **Chunks:** the world is divided into fixed `CHUNK_SIZE` (16) chunks. A pure, deterministic generator `generate(seed, cx, cy)` produces a chunk's cells. As the camera reveals new chunks, `ensureChunk` runs the generator once per chunk (non-destructively — never overwriting an existing cell) and marks it loaded.
+- **MVP content model (A):** the **origin chunk (0,0)** generates the authored starting puzzle (extractors, operator, target). All other chunks generate as **empty buildable land**. The `seed` is stored now but only the origin has content in the MVP.
+- **Deferred (B):** swap the generator to scatter procedural **number deposits** across all chunks (a sandbox). The chunk/camera/streaming/save machinery is unchanged — only the generator function changes.
+- **Determinism:** generation uses a hash-based PRNG seeded by `(seed, cx, cy)` — never `Math.random` — so the world is reproducible and save/resume-safe.
 
 ### Visual style: pick via a live theme switcher
 
@@ -47,6 +58,7 @@ Whichever theme is preferred becomes the default `Theme`. Nothing is thrown away
 ### Persistence: flat JSON to start
 
 - Each user's game state serialized as **versioned JSON** (per CLAUDE.md), keyed by user id, stored under a mounted `data/` volume.
+- **What's saved:** the full sparse cell `Map`, `loadedChunks` set, live items, `nextItemId`, `tick`, `status`, and the world `seed`. `Map`/`Set` are encoded as arrays; BigInt as strings. For the MVP (A) the only generated content is the origin chunk, so saving the full cell map is small and simple — and preserves live runtime state (operator input buffers, extractor timers) that a pure seed+edits scheme would lose. Storing `seed` now keeps the door open to a lean seed+edits format once (B) makes generation content-heavy.
 - Zero native dependencies; trivial to inspect and migrate. SQLite is a deliberate later swap if we outgrow it (isolated in the storage module).
 - Save triggers: on tick-boundary (throttled, e.g. every N seconds while dirty) and on explicit save / page unload. Load on login.
 
@@ -68,26 +80,27 @@ Whichever theme is preferred becomes the default `Theme`. Nothing is thrown away
 ```
 src/
   sim/              # pure simulation — NO rendering/DOM/network imports
-    grid.ts           # grid + cell model
+    grid.ts           # sparse GameState (Map-based cells), keys, directions
+    world.ts          # chunks: CHUNK_SIZE, ensureChunk, newGame, ChunkGenerator type
     entities.ts       # belt, extractor, operator, sink/target definitions
     items.ts          # item + value (BigInt) logic
     tick.ts           # fixed-timestep update (~10 ticks/s, configurable)
     save.ts           # serialize / deserialize game state (versioned)
   render/           # reads sim state, never drives it
-    renderer.ts       # Renderer interface + Theme type
-    pixi-renderer.ts  # PixiJS implementation (Pixi.Graphics)
+    renderer.ts       # Renderer interface + Theme + Camera types
+    pixi-renderer.ts  # PixiJS implementation (Pixi.Graphics) with camera
     themes.ts         # the three theme configs
   content/          # data-driven content
-    levels.ts         # the MVP level (grid layout, available numbers, target)
+    worldgen.ts       # ChunkGenerator: origin puzzle now, deposits later
     operations.ts     # arithmetic ops (addition for MVP)
   ui/               # HUD, login page, theme switcher, controls
   input/            # place/remove entities, interaction
   net/              # API client (login, load, save)
-  main.ts           # bootstrap: render loop + fixed-tick loop
+  main.ts           # bootstrap: render loop + fixed-tick loop + camera/streaming
 
 server/
   index.ts          # Express: static hosting + /api routes
-  auth.ts           # session, bcrypt, seeded users
+  users.ts          # bcrypt, seeded users
   storage.ts        # JSON load/save per user (data/ volume)
 
 docker-compose.yml
@@ -115,14 +128,14 @@ Dockerfile
 - `POST /api/save` — persists the posted serialized game state for the logged-in user.
 - All `/api/*` except login require a valid session.
 
-## The MVP Level
+## The Starting Chunk (MVP content)
 
-- Roomy grid to leave space for routing — the dimensions are **level data**, not an engine limit. Start around **20×14** and tune to taste; the renderer viewport pans/scales to fit whatever the level declares.
-- One or two **extractors** emitting fixed base numbers (addition-phase values, 1–9 range).
+- The **origin chunk (0,0)** generates the authored puzzle; everything beyond it is empty buildable land the player pans into (manual pan/zoom camera).
+- Two **extractors** emitting fixed base numbers (addition-phase values, 1–9 range) — e.g. 7 and 5.
 - Player places **belts** to route items and one **operator** machine (addition) that takes two inputs → emits `a + b`.
-- One **target/sink** with a goal number (5–30 range). Delivering an item equal to the target = success.
+- One **target/sink** with a goal number (5–30 range) — e.g. 12, giving an obvious 7 + 5 solution. Delivering an item equal to the target = success.
 - Encouraging, non-punishing feedback ("not yet, try again" — no fail state).
-- Level defined as data in `content/levels.ts`.
+- Starting layout defined as data in `content/worldgen.ts` (the origin-chunk branch of the generator).
 
 ## Testing
 
@@ -135,15 +148,19 @@ Dockerfile
 ```jsonc
 {
   "version": 1,
-  "levelId": "mvp-1",
+  "seed": 12345,
   "tick": 1234,
-  "grid": { "width": 20, "height": 14, "cells": [ /* entity placements */ ] },
-  "items": [ { "value": "7", "cell": [3,4], "slot": 2 } /* BigInt as string */ ]
+  "status": "playing",
+  "nextItemId": 42,
+  "cells": [ ["3,4", { "type": "belt", "dir": "right" }] /* Map entries */ ],
+  "chunks": ["0,0", "1,0"],                 // loadedChunks as an array
+  "items": [ { "id": 1, "value": {"__big":"7"}, "x": 3, "y": 4, "px": 3, "py": 4 } ]
 }
 ```
 
 - `version` gates future migrations.
-- BigInt values serialized as strings (JSON has no BigInt).
+- `cells` is the sparse `Map` as `[key, cell]` entries; `chunks` is the `loadedChunks` `Set` as an array.
+- BigInt values encoded as `{ "__big": "<decimal>" }` and revived to real BigInt on load (JSON has no BigInt).
 
 ## Non-Goals (MVP)
 
@@ -155,6 +172,8 @@ Dockerfile
 
 ## Follow-ups (explicitly deferred)
 
+- **Procedural resource deposits (content model B):** swap `content/worldgen.ts` to scatter number deposits across all chunks — turns the game into a sandbox. Chunk/camera/streaming/save machinery already supports it.
+- **Lean seed+edits save:** once generation is content-heavy, persist only `seed` + player edits instead of the full cell map.
 - Render-side level-of-detail (aggregate flow on dense belts) — behind `Renderer`.
 - Sim-side throughput rollups for long saturated belts — in `sim/`.
 - SQLite persistence swap — behind `storage.ts`.
