@@ -1,0 +1,15 @@
+services:
+  belt-factory:
+    build: .
+    ports:
+      - "8080:3000"
+    environment:
+      - SEED_USERS=${SEED_USERS:-dad:changeme,kid:apples}
+      - SESSION_SECRET=${SESSION_SECRET:-please-change-this}
+      - DATA_DIR=/app/data
+    volumes:
+      - bf-data:/app/data
+    restart: unless-stopped
+
+volumes:
+  bf-data:
