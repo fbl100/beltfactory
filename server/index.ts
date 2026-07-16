@@ -10,13 +10,20 @@ const PORT = Number(process.env.PORT ?? 3000);
 const DATA_DIR = process.env.DATA_DIR ?? join(__dirname, '..', 'data');
 const DIST_DIR = join(__dirname, '..', 'dist');
 
+const DEFAULT_SECRETS = ['dev-secret-change-me', 'please-change-this'];
+const SESSION_SECRET = process.env.SESSION_SECRET ?? 'dev-secret-change-me';
+if (DEFAULT_SECRETS.includes(SESSION_SECRET)) {
+  // A known/default secret lets anyone forge a signed session cookie.
+  console.warn('WARNING: SESSION_SECRET is unset or a default. Set a long random SESSION_SECRET before real use.');
+}
+
 const users = loadUsers();
 const app = express();
 
 app.use(express.json({ limit: '4mb' }));
 app.use(cookieSession({
   name: 'bf',
-  secret: process.env.SESSION_SECRET ?? 'dev-secret-change-me',
+  secret: SESSION_SECRET,
   httpOnly: true,
   sameSite: 'lax',
   maxAge: 30 * 24 * 60 * 60 * 1000,

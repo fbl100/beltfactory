@@ -6,10 +6,20 @@ export interface User { username: string; hash: string }
 // Private family app; keep it simple. Change via .env.
 export function loadUsers(): User[] {
   const raw = process.env.SEED_USERS ?? 'dad:changeme,kid:apples';
-  return raw.split(',').map((pair) => {
-    const [username, password] = pair.split(':');
-    return { username: username.trim(), hash: bcrypt.hashSync((password ?? '').trim(), 8) };
-  });
+  const users: User[] = [];
+  for (const pair of raw.split(',')) {
+    const [rawUser, rawPass] = pair.split(':');
+    const username = (rawUser ?? '').trim();
+    const password = (rawPass ?? '').trim();
+    // Skip malformed entries: an empty username or password would mint a
+    // passwordless account (login succeeds with a blank password).
+    if (!username || !password) {
+      if (pair.trim()) console.warn(`Ignoring SEED_USERS entry "${pair}" (needs user:password).`);
+      continue;
+    }
+    users.push({ username, hash: bcrypt.hashSync(password, 8) });
+  }
+  return users;
 }
 
 export function verifyUser(users: User[], username: string, password: string): boolean {
