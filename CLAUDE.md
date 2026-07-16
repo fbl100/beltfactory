@@ -16,11 +16,12 @@ This is an original project. It reuses the **genre mechanics** but none of the a
 ## Tech Stack
 
 - **Language:** TypeScript.
-- **Rendering:** PixiJS (WebGL) for the grid, belts, and moving items.
+- **Rendering:** PixiJS (WebGL) for the grid, belts, and moving items — accessed through a `Renderer` interface (`src/render/renderer.ts`) with a swappable `Theme` config and a manual pan/zoom `Camera`. The renderer owns the camera and streams only visible cells; sim state is read, never mutated. Three built-in themes with a live switcher.
+- **World:** an **unbounded, sparse chunked grid** — cells live in a `Map<"x,y", Cell>` (coords may be negative), divided into 16×16 chunks generated on demand and deterministically from `(seed, chunkX, chunkY)`.
 - **Build:** Vite (fast dev server, hot reload).
 - **Numbers:** use `BigInt` for item/target values from the start to avoid floating-point issues as numbers grow.
-- **Persistence:** `localStorage` (serialize grid state to JSON). Keep the save format versioned so we can migrate later.
-- **No backend.** Everything runs client-side in the browser.
+- **Persistence:** server-side, per-user JSON saves via a small Express API (`server/`). The versioned save round-trips the sparse cell `Map`, loaded chunks, items, and `BigInt` values so a game resumes on any device. Save format stays versioned for future migrations.
+- **Backend:** a single Node + Express server (`server/`) hosts the built frontend and a tiny JSON API for seeded-user auth (bcrypt + cookie-session) and save/resume; ships via Docker Compose. The simulation and rendering still run entirely client-side.
 
 Do not add heavy dependencies or new frameworks without asking first. Prefer small, well-understood libraries.
 
@@ -86,11 +87,13 @@ Keep this progression as editable data so we can retune it for her actual pace.
 
 ## Constraints / Non-Goals
 
-- No online features, accounts, or servers.
+- No *public* online features, third-party accounts, cloud services, or multiplayer. A single self-hosted server with a small seeded family-user list (for login + cross-device save/resume) is in scope; nothing is exposed beyond the household deployment.
 - No copyrighted assets, names, or text from any existing game. Original art and naming only. (Working title is a placeholder — pick a fun original name.)
 - No monetization, ads, or analytics.
 - Don't over-engineer. This is a learning-and-fun project, not a shipping product.
 
 ## Current Status
 
-Fresh project — nothing built yet. First milestone: a Vite + TypeScript + PixiJS skeleton that renders a grid and moves a single item along a short belt on a fixed tick.
+MVP shipped. Deployable via Docker Compose with seeded-user login (bcrypt + cookie-session) and per-user JSON save/resume. The game runs on an unbounded chunked world (authored 7 + 5 → 12 addition puzzle in the origin chunk, empty buildable land everywhere else), a manual pan/zoom camera that streams chunks into view, a pure fixed-timestep simulation (extract → belt-route → operator → sink/win), belt placement/removal via the HUD, three live-switchable themes, and autosave. Verified end-to-end (43 unit/integration tests, plus a real-browser run: log in, route the puzzle to the win banner, refresh and resume).
+
+Next: procedural number deposits (content model B), difficulty progression (Phases 2–4) as editable data, drag-to-pan/paint input, and render/sim rollups if profiling calls for them.
