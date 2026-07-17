@@ -24,6 +24,16 @@ buildings (miner/operator/target) over a resource-node ground layer.
 Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser run
 (place 2 miners on nodes + operator via tools, drag belts, win, reload → resume wins).
 
-NEXT: difficulty progression (subtraction / × / ÷) as editable content data; procedural
-number deposits beyond the origin chunk; drag-to-pan; more building/machine types; and an
-adversarial code-review pass over the render/input rework.
+## Post-rework iteration (feat/mvp)
+- Belts slowed to 2.5 ticks/s (80b6e4b).
+- Throughput rates + count-based level with a progress bar (b7b0c34): miners ~30/min,
+  operators throttled ~7.5/min; target needs TARGET_COUNT deliveries; save v3.
+- Splitters (ce3b5ef): 1x1 round-robin belt junctions (own layer); "Split" tool (hotkey 4).
+  Unblocks feeding 2 adders from one miner AND reaching numbers beyond 7+5=12.
+
+Status: 74 tests, tsc clean, vite build, browser-verified (place miners/operator/splitter,
+route belts, progress bar advances, resume).
+
+NEXT: multi-target progression (advancing targets + more operators/nodes as you go — now
+reachable via splitters); subtraction / × / ÷ as editable content data; procedural deposits
+beyond the origin chunk; drag-to-pan; and an adversarial code-review pass over the rework.
