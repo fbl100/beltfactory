@@ -64,7 +64,8 @@ function produce(state: GameState): void {
     if (b.inputs.length < 2 || b.sinceProduce < b.everyTicks) continue;
     const { x, y } = outCell(b);
     if (canEmitOnto(state, x, y)) {
-      state.items.push(createItem(state.nextItemId++, applyOp(b.op, b.inputs[0], b.inputs[1]), x, y));
+      // inputs holds one pending value per side, so [0] and [1] are always from different belts.
+      state.items.push(createItem(state.nextItemId++, applyOp(b.op, b.inputs[0].value, b.inputs[1].value), x, y));
       b.inputs.splice(0, 2);
       b.sinceProduce = 0;
     }
@@ -117,11 +118,17 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
   // building ahead -> deliver iff stepping onto one of its in-ports
   const b = buildingAt(state, tx, ty);
   if (b) {
-    const slot = inPortSlot(b, tx, ty);
-    if (b.type === 'operator' && slot >= 0) {
-      if (b.inputs.length < 2) { b.inputs.push(it.value); removed.add(it.id); return true; }
-      moved.add(it.id); return false; // back-pressure: both inputs full
+    if (b.type === 'operator') {
+      // The side the item enters on is opposite its travel dir; the front (b.dir) is the output,
+      // not an input. Keep at most one pending value PER side so two items from the SAME belt
+      // can't pair (which produced e.g. 3×3=9 instead of 2×3=6).
+      const side = OPPOSITE[dir];
+      if (side !== b.dir && !b.inputs.some((p) => p.side === side)) {
+        b.inputs.push({ side, value: it.value }); removed.add(it.id); return true;
+      }
+      moved.add(it.id); return false; // output side, or this side already holds a pending value -> wait
     }
+    const slot = inPortSlot(b, tx, ty);
     if (b.type === 'target' && slot >= 0) {
       // Count only; the level-up / win decision happens once per tick in checkLevel(), after
       // all movement settles — see step(). A value that was a target on an earlier level is

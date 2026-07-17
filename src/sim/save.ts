@@ -1,12 +1,12 @@
 import type { GameState } from './grid';
 import { rebuildOccupancy } from './buildings';
 
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 
-// Versions this reader can still load. v3 (pre-progression, single fixed target) is migrated
-// on load: it deserializes faithfully, then reconcileLevel() (called at boot) rolls it into
-// level 0 — the family's built factory survives the upgrade.
-const READABLE_VERSIONS = new Set([3, 4]);
+// Versions this reader can still load. Older saves migrate on load: v3 (pre-progression) rolls
+// into level 0 via reconcileLevel() at boot; v4 had a different operator-inputs shape, which we
+// simply reset (see deserialize). Either way the family's built factory survives the upgrade.
+const READABLE_VERSIONS = new Set([3, 4, 5]);
 
 // JSON has no BigInt: encode as { __big: "<decimal>" } and revive on load.
 function replacer(_key: string, value: unknown): unknown {
@@ -59,5 +59,8 @@ export function deserialize(json: string): GameState {
     misses: 0,
   };
   rebuildOccupancy(state); // derive the spatial index from the buildings map
+  // Operator pending inputs are transient (a value waiting for its pair) and the shape changed
+  // across versions — reset them rather than migrate; the operator just waits for fresh inputs.
+  for (const b of state.buildings.values()) if (b.type === 'operator') b.inputs = [];
   return state;
 }

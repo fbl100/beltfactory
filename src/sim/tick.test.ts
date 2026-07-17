@@ -4,7 +4,7 @@ import { emptyState, setBelt, setSplitter, setTunnel, itemAt } from './grid';
 import type { Direction } from './grid';
 import type { BeltCell } from './entities';
 import { createItem } from './items';
-import { addBuilding } from './buildings';
+import { addBuilding, buildingAt } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
 import { LEVELS } from '../content/levels';
 
@@ -112,6 +112,26 @@ describe('tick: operator', () => {
     s.items.push(createItem(2, 10n, 2, 4));
     step(s); step(s);
     expect(itemAt(s, 4, 2)?.value).toBe(50n); // 5 × 10
+  });
+  it('holds one input per side: two items from the SAME belt never pair together', () => {
+    const s = emptyState(1);
+    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'multiply', inputs: [], everyTicks: 1, sinceProduce: 0 };
+    addBuilding(s, o); // center (2,2); top-in (2,1), bottom-in (2,3), out (4,2)
+    setBelt(s, 2, -1, belt('down')); // top feed lane (two 3s queue here)
+    setBelt(s, 2, 0, belt('down'));
+    setBelt(s, 4, 2, belt('right')); // out belt
+    s.items.push(createItem(1, 3n, 2, 0));
+    s.items.push(createItem(2, 3n, 2, -1));
+    for (let i = 0; i < 5; i++) step(s);
+    // only ONE 3 can occupy the top side; the second waits — a 3×3=9 must never be produced
+    expect(s.items.every((it) => it.value !== 9n)).toBe(true);
+    expect((buildingAt(s, 2, 2) as OperatorBuilding).inputs.length).toBe(1);
+    // feed a 2 on the OTHER (bottom) side -> now two different belts pair -> 2×3 = 6
+    setBelt(s, 2, 4, belt('up'));
+    s.items.push(createItem(3, 2n, 2, 4));
+    for (let i = 0; i < 5; i++) step(s);
+    expect(s.items.some((it) => it.value === 6n)).toBe(true);
+    expect(s.items.some((it) => it.value === 9n)).toBe(false);
   });
 });
 

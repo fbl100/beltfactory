@@ -12,8 +12,11 @@ export type BuildingType = 'miner' | 'operator' | 'target';
 interface Base { ax: number; ay: number; dir: Direction }
 export interface MinerBuilding extends Base { type: 'miner'; value: bigint; everyTicks: number; sinceEmit: number }
 // everyTicks/sinceProduce throttle an operator's output rate (its throughput cap).
-// Two inputs from any of the 3 non-front sides; ops are order-independent (see content/operations), so arrival order doesn't matter.
-export interface OperatorBuilding extends Base { type: 'operator'; op: OpId; inputs: bigint[]; everyTicks: number; sinceProduce: number }
+// A pending input waiting to be paired, tagged with the side (of the operator) it arrived on.
+export interface OperatorInput { side: Direction; value: bigint }
+// Holds at most ONE pending value per input side (the 3 non-front sides), so two items from the
+// SAME belt can't pair (that produced e.g. 3×3=9 instead of 2×3=6). Ops are order-independent.
+export interface OperatorBuilding extends Base { type: 'operator'; op: OpId; inputs: OperatorInput[]; everyTicks: number; sinceProduce: number }
 export interface TargetBuilding extends Base { type: 'target'; target: bigint; required: number } // dir vestigial (accepts all 4 sides)
 export type Building = MinerBuilding | OperatorBuilding | TargetBuilding;
 

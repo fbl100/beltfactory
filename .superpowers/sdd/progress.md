@@ -80,8 +80,16 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
   Pure data + test change; no engine edits. Browser-verified: boot Make 6 with 2/3 spread out and
   +/× offered → 2×3 factory advances to Make 12 with no new deposit (stays {2,3}), toast, no misses.
 
-Status: 111 tests, tsc clean, vite build, browser-verified (Prime Foundry {2,3} advance + spacing;
-op gating; pan/zoom; resume).
+- Operator input bug fix: the operator pooled all arrivals into one bigint[] and paired the first
+  two regardless of belt, so two items from the SAME belt could combine (e.g. 3×3=9 instead of
+  2×3=6, seen with mismatched arrival rates). Now holds at most one pending input PER SIDE
+  (OperatorInput{side,value}; entry side = opposite the item's travel dir; front is the output).
+  produce() pairs two different-side values. Save bumped to v5 (v3/v4 still load; operator inputs
+  are transient, reset on load). Regression test (same-belt items never pair) + browser-verified
+  (skewed-timing 2×3 factory only ever emits 2/3/6 — no 4 or 9).
+
+Status: 112 tests, tsc clean, vite build, browser-verified (Prime Foundry {2,3} advance + spacing;
+op one-per-side fix; op gating; pan/zoom; resume).
 
 NEXT: Era Islands (per-operator islands + procedural deposits beyond origin — old islands persist),
 a division Breaker Yard island, and optional Number Golf pars (see docs/design/2026-07-16-*).
