@@ -37,9 +37,12 @@ export function createHud(
   progWrap.append(progBar, progText);
 
   // --- build-tool selector ---
+  // No 'operator' entry: the op-type buttons (+ − × ÷) below both select the operator tool AND pick
+  // the operation in one click (and hotkey 3 selects it), so a separate "+ Op" button was redundant
+  // — and its "+" was easily mistaken for the addition operator sitting right beside it.
   const tools: { id: Tool; label: string }[] = [
     { id: 'belt', label: 'Belt' }, { id: 'splitter', label: 'Split' }, { id: 'tunnel', label: 'Tunnel' },
-    { id: 'miner', label: 'Miner' }, { id: 'operator', label: '+ Op' },
+    { id: 'miner', label: 'Miner' },
   ];
   let activeTool: Tool = 'belt';
   const toolWrap = document.createElement('div'); toolWrap.style.cssText = 'display:flex;gap:4px';
