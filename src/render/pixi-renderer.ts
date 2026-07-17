@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { Renderer, Theme, Camera, Preview } from './renderer';
 import type { GameState, Direction } from '../sim/grid';
-import { parseKey, DELTA } from '../sim/grid';
+import { parseKey, DELTA, DIRECTIONS, OPPOSITE } from '../sim/grid';
 import { buildingAt, portsOf, outCell, FOOTPRINT } from '../sim/buildings';
 import { CHUNK_SIZE } from '../sim/world';
 import { OPERATIONS } from '../content/operations';
@@ -116,6 +116,23 @@ export class PixiRenderer implements Renderer {
       this.arrow(g, this.sx(x) + cs / 2, this.sy(y) + cs / 2, cs * 0.2, belt.dir, t.beltEdge);
     }
 
+    // splitters (1x1): body + a chevron toward each active output + a hub dot
+    for (const key of state.splitters.keys()) {
+      const { x, y } = parseKey(key);
+      if (!inRange(x, y)) continue;
+      const px = this.sx(x) + 2, py = this.sy(y) + 2, sz = cs - 4;
+      g.roundRect(px, py, sz, sz, t.cornerRadius).fill(t.belt);
+      g.roundRect(px, py, sz, sz, t.cornerRadius).stroke({ width: 3, color: t.arrow });
+      const ccx = this.sx(x) + cs / 2, ccy = this.sy(y) + cs / 2;
+      for (const d of DIRECTIONS) {
+        const nk = `${x + DELTA[d].dx},${y + DELTA[d].dy}`;
+        const nb = state.belts.get(nk);
+        const isOut = (nb !== undefined && nb.dir !== OPPOSITE[d]) || state.splitters.has(nk);
+        if (isOut) this.arrow(g, ccx + DELTA[d].dx * cs * 0.28, ccy + DELTA[d].dy * cs * 0.28, cs * 0.16, d, t.arrow);
+      }
+      g.circle(ccx, ccy, cs * 0.1).fill(t.arrow);
+    }
+
     // 3x3 buildings: body, port arrows, no-output warning, center label
     for (const b of state.buildings.values()) {
       const ax = b.ax, ay = b.ay;
@@ -125,7 +142,7 @@ export class PixiRenderer implements Renderer {
       g.roundRect(px, py, span, span, t.cornerRadius).fill(body);
 
       const cxWorld = ax + 1, cyWorld = ay + 1;
-      const hasOut = b.type === 'target' || this.beltPresent(state, outCell(b));
+      const hasOut = b.type === 'target' || this.carrierPresent(state, outCell(b));
       for (const port of portsOf(b)) {
         const d = DELTA[port.side];
         const ex = this.sx(cxWorld + d.dx) + cs / 2, ey = this.sy(cyWorld + d.dy) + cs / 2;
@@ -168,8 +185,8 @@ export class PixiRenderer implements Renderer {
     for (let k = ti; k < this.texts.length; k++) this.texts[k].visible = false;
   }
 
-  private beltPresent(state: GameState, c: { x: number; y: number }): boolean {
-    return state.belts.has(`${c.x},${c.y}`);
+  private carrierPresent(state: GameState, c: { x: number; y: number }): boolean {
+    return state.belts.has(`${c.x},${c.y}`) || state.splitters.has(`${c.x},${c.y}`);
   }
 }
 

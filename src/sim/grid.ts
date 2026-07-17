@@ -1,4 +1,4 @@
-import type { BeltCell, ResourceNode } from './entities';
+import type { BeltCell, SplitterCell, ResourceNode } from './entities';
 import type { Building } from './buildings';
 import type { Item } from './items';
 
@@ -23,6 +23,7 @@ export interface GameState {
   seed: number;
   tick: number;
   belts: Map<string, BeltCell>;          // 1x1
+  splitters: Map<string, SplitterCell>;  // 1x1, round-robin a stream across outgoing belts
   buildings: Map<string, Building>;      // key = cellKey(anchor) = top-left of the 3x3
   nodes: Map<string, ResourceNode>;      // passive ground layer
   occupancy: Map<string, string>;        // DERIVED: footprint cell key -> building anchor key; never serialized
@@ -53,6 +54,16 @@ export function setBelt(state: GameState, x: number, y: number, cell: BeltCell |
   else state.belts.delete(k);
 }
 
+export function splitterAt(state: GameState, x: number, y: number): SplitterCell | undefined {
+  return state.splitters.get(cellKey(x, y));
+}
+
+export function setSplitter(state: GameState, x: number, y: number, cell: SplitterCell | null): void {
+  const k = cellKey(x, y);
+  if (cell) state.splitters.set(k, cell);
+  else state.splitters.delete(k);
+}
+
 export function nodeAt(state: GameState, x: number, y: number): ResourceNode | undefined {
   return state.nodes.get(cellKey(x, y));
 }
@@ -64,7 +75,7 @@ export function itemAt(state: GameState, x: number, y: number): Item | undefined
 export function emptyState(seed: number): GameState {
   return {
     version: 2, seed, tick: 0,
-    belts: new Map(), buildings: new Map(), nodes: new Map(), occupancy: new Map(),
+    belts: new Map(), splitters: new Map(), buildings: new Map(), nodes: new Map(), occupancy: new Map(),
     loadedChunks: new Set(),
     items: [], nextItemId: 1, delivered: 0, misses: 0, status: 'playing',
   };

@@ -1,5 +1,5 @@
 import type { GameState, Direction } from '../sim/grid';
-import { beltAt, setBelt, nodeAt, RIGHT_OF } from '../sim/grid';
+import { beltAt, setBelt, splitterAt, setSplitter, nodeAt, RIGHT_OF } from '../sim/grid';
 import type { MinerBuilding, OperatorBuilding } from '../sim/buildings';
 import { isBlocked, buildingAt, addBuilding, removeBuildingAt } from '../sim/buildings';
 import type { OpId } from '../content/operations';
@@ -19,12 +19,19 @@ function dirBetween(ax: number, ay: number, bx: number, by: number): Direction {
 }
 
 // Place a belt on an empty cell, or re-orient an existing belt. Belts may sit over
-// a resource node (separate layer) but never over a building footprint.
+// a resource node (separate layer) but never over a building or splitter.
 function placeOrOrientBelt(state: GameState, x: number, y: number, dir: Direction): void {
-  if (buildingAt(state, x, y)) return;
+  if (buildingAt(state, x, y) || splitterAt(state, x, y)) return;
   const b = beltAt(state, x, y);
   if (!b) setBelt(state, x, y, { type: 'belt', dir });
   else b.dir = dir;
+}
+
+// Place a 1x1 splitter on an otherwise-empty cell (may sit over a node).
+export function placeSplitter(state: GameState, x: number, y: number, dir: Direction): boolean {
+  if (isBlocked(state, x, y)) return false;
+  setSplitter(state, x, y, { type: 'splitter', dir, next: 0 });
+  return true;
 }
 
 // Paint a contiguous belt run from (ax,ay) to (bx,by) along a Manhattan path,
@@ -95,7 +102,12 @@ export function placeOperator(state: GameState, cx: number, cy: number, dir: Dir
 // Erase a belt, or a whole building (from any of its cells). The target hub is
 // protected (a 9-year-old can't delete the goal); nodes are never removed.
 export function eraseAt(state: GameState, x: number, y: number): boolean {
-  if (removeCell(state, x, y)) return true;
+  if (removeCell(state, x, y)) return true; // belt (also drops a stranded item)
+  if (splitterAt(state, x, y)) {
+    setSplitter(state, x, y, null);
+    state.items = state.items.filter((it) => !(it.x === x && it.y === y));
+    return true;
+  }
   const b = buildingAt(state, x, y);
   if (b && b.type !== 'target') return removeBuildingAt(state, x, y);
   return false;

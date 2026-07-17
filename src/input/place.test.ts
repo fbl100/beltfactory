@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   paintBeltLine, removeCell, eraseAt, eraseLine,
-  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator,
+  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator, placeSplitter,
 } from './place';
-import { emptyState, beltAt, cellKey } from '../sim/grid';
+import { emptyState, beltAt, splitterAt, cellKey } from '../sim/grid';
 import { addBuilding, buildingAt } from '../sim/buildings';
 import { createItem } from '../sim/items';
 
@@ -66,6 +66,31 @@ describe('input.buildings', () => {
     expect(canPlaceOperator(s, 5, 5)).toBe(true);
     expect(placeOperator(s, 5, 5, 'right')).toBe(true);
     expect(placeOperator(s, 6, 6, 'right')).toBe(false); // overlaps the first
+  });
+});
+
+describe('input.splitters', () => {
+  it('places a splitter on an empty cell and rejects when blocked', () => {
+    const s = emptyState(1);
+    expect(placeSplitter(s, 4, 4, 'right')).toBe(true);
+    expect(splitterAt(s, 4, 4)?.type).toBe('splitter');
+    expect(placeSplitter(s, 4, 4, 'right')).toBe(false); // already occupied
+  });
+  it('belt paint does not overwrite a splitter', () => {
+    const s = emptyState(1);
+    placeSplitter(s, 2, 0, 'right');
+    paintBeltLine(s, 0, 0, 4, 0, 'right');
+    expect(splitterAt(s, 2, 0)?.type).toBe('splitter'); // preserved
+    expect(beltAt(s, 1, 0)).toEqual({ type: 'belt', dir: 'right' });
+    expect(beltAt(s, 2, 0)).toBeUndefined();
+  });
+  it('eraseAt removes a splitter and drops its item', () => {
+    const s = emptyState(1);
+    placeSplitter(s, 3, 3, 'right');
+    s.items.push(createItem(1, 9n, 3, 3));
+    expect(eraseAt(s, 3, 3)).toBe(true);
+    expect(splitterAt(s, 3, 3)).toBeUndefined();
+    expect(s.items.length).toBe(0);
   });
 });
 

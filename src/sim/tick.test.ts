@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { step } from './tick';
-import { emptyState, setBelt, itemAt } from './grid';
+import { emptyState, setBelt, setSplitter, itemAt } from './grid';
 import type { Direction } from './grid';
 import type { BeltCell } from './entities';
 import { createItem } from './items';
@@ -73,6 +73,35 @@ describe('tick: operator', () => {
     expect(s.items.length).toBe(0);
     step(s); // produce() sees 2 inputs -> emits 12 on the out belt
     expect(itemAt(s, 4, 2)?.value).toBe(12n);
+  });
+});
+
+describe('tick: splitter', () => {
+  it('an item rides a belt into a splitter and out an output belt', () => {
+    const s = emptyState(1);
+    setBelt(s, 0, 0, belt('right'));
+    setSplitter(s, 1, 0, { type: 'splitter', dir: 'right', next: 1 }); // prefer east first
+    setBelt(s, 2, 0, belt('right'));
+    s.items.push(createItem(1, 9n, 0, 0));
+    step(s); // (0,0) -> splitter (1,0)
+    expect(itemAt(s, 1, 0)?.id).toBe(1);
+    step(s); // splitter -> east belt (2,0)
+    expect(itemAt(s, 2, 0)?.id).toBe(1);
+  });
+  it('round-robins consecutive items across two outgoing belts', () => {
+    const s = emptyState(1);
+    setSplitter(s, 2, 0, { type: 'splitter', dir: 'right', next: 0 });
+    setBelt(s, 3, 0, belt('right')); // east output
+    setBelt(s, 2, 1, belt('down'));  // south output
+    s.items.push(createItem(1, 7n, 2, 0));
+    step(s); // item1 leaves to one output
+    s.items.push(createItem(2, 5n, 2, 0));
+    step(s); // item2 leaves to the *other* output
+    const eastId = itemAt(s, 3, 0)?.id;
+    const southId = itemAt(s, 2, 1)?.id;
+    expect(eastId).toBeDefined();
+    expect(southId).toBeDefined();
+    expect(eastId).not.toBe(southId);
   });
 });
 

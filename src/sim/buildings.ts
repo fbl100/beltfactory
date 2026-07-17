@@ -1,5 +1,5 @@
 import type { Direction, GameState } from './grid';
-import { DELTA, DIRECTIONS, OPPOSITE, RIGHT_OF, LEFT_OF, cellKey, beltAt } from './grid';
+import { DELTA, DIRECTIONS, OPPOSITE, RIGHT_OF, LEFT_OF, cellKey, beltAt, splitterAt } from './grid';
 import type { OpId } from '../content/operations';
 
 // 3x3 rotatable buildings. Anchor = top-left cell (also the unique key); the
@@ -78,9 +78,9 @@ export function buildingAt(s: GameState, x: number, y: number): Building | undef
   return anchor ? s.buildings.get(anchor) : undefined;
 }
 
-// True if a belt OR building already occupies (x,y). Nodes are a separate layer and never block.
+// True if a belt, splitter, OR building already occupies (x,y). Nodes are a separate layer and never block.
 export function isBlocked(s: GameState, x: number, y: number): boolean {
-  return beltAt(s, x, y) !== undefined || buildingAt(s, x, y) !== undefined;
+  return beltAt(s, x, y) !== undefined || splitterAt(s, x, y) !== undefined || buildingAt(s, x, y) !== undefined;
 }
 
 // Place a building iff its whole 3x3 footprint is clear; indexes occupancy. Returns success.

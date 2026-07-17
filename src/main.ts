@@ -7,7 +7,7 @@ import { serialize, deserialize } from './sim/save';
 import { step, TICKS_PER_SECOND } from './sim/tick';
 import type { GameState, Direction } from './sim/grid';
 import {
-  paintBeltLine, eraseLine, placeMiner, placeOperator, canPlaceMiner, canPlaceOperator, ROTATE_CW,
+  paintBeltLine, eraseLine, placeMiner, placeOperator, placeSplitter, canPlaceMiner, canPlaceOperator, ROTATE_CW,
 } from './input/place';
 import { showLogin } from './ui/login';
 import { createHud } from './ui/hud';
@@ -66,7 +66,8 @@ async function boot() {
     if (e.button === 2) { paintMode = 'erase'; eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; }
     else if (tool === 'belt') { paintMode = 'place'; paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir); lastCell = c; }
     else if (tool === 'miner') { placeMiner(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
-    else { placeOperator(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
+    else if (tool === 'operator') { placeOperator(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
+    else { placeSplitter(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
     dirty = true; e.preventDefault();
   });
   canvas.addEventListener('mousemove', (e) => {
@@ -90,6 +91,7 @@ async function boot() {
     if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); return; }
     if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); return; }
     if (e.key === '3') { tool = 'operator'; hud.setTool('operator'); return; }
+    if (e.key === '4') { tool = 'splitter'; hud.setTool('splitter'); return; }
     const pan: Record<string, [number, number]> = {
       ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
     };
@@ -107,8 +109,8 @@ async function boot() {
     const cr = renderer.visibleChunkRange();
     ensureChunksInRange(state, mvpGenerator, cr.minCx, cr.minCy, cr.maxCx, cr.maxCy);
     // placement ghost for the building tools
-    if (tool === 'belt' || !hover) {
-      renderer.setPreview(null);
+    if (tool === 'belt' || tool === 'splitter' || !hover) {
+      renderer.setPreview(null); // 1x1 tools: no 3x3 ghost
     } else {
       const ok = tool === 'miner' ? canPlaceMiner(state, hover.x, hover.y) : canPlaceOperator(state, hover.x, hover.y);
       renderer.setPreview({ type: tool, ox: hover.x - 1, oy: hover.y - 1, dir: placeDir, valid: ok });

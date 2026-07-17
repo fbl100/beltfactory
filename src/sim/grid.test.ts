@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cellKey, parseKey, beltAt, setBelt, nodeAt, itemAt, emptyState,
+  cellKey, parseKey, beltAt, setBelt, splitterAt, setSplitter, nodeAt, itemAt, emptyState,
   DELTA, DIRECTIONS, OPPOSITE, RIGHT_OF, LEFT_OF,
 } from './grid';
 
@@ -16,6 +16,13 @@ describe('sparse grid', () => {
     expect(beltAt(s, 0, 0)).toBeUndefined();
     setBelt(s, -5, 20, null);
     expect(beltAt(s, -5, 20)).toBeUndefined();
+  });
+  it('sets, reads, and deletes splitters', () => {
+    const s = emptyState(1);
+    setSplitter(s, 3, 4, { type: 'splitter', dir: 'right', next: 0 });
+    expect(splitterAt(s, 3, 4)).toEqual({ type: 'splitter', dir: 'right', next: 0 });
+    setSplitter(s, 3, 4, null);
+    expect(splitterAt(s, 3, 4)).toBeUndefined();
   });
   it('reads a resource node', () => {
     const s = emptyState(1);
@@ -33,6 +40,7 @@ describe('sparse grid', () => {
     const s = emptyState(99);
     expect(s.seed).toBe(99);
     expect(s.belts.size).toBe(0);
+    expect(s.splitters.size).toBe(0);
     expect(s.buildings.size).toBe(0);
     expect(s.nodes.size).toBe(0);
     expect(s.occupancy.size).toBe(0);
