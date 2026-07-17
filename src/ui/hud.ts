@@ -3,7 +3,7 @@ import { THEMES } from '../render/themes';
 import { formatValue } from '../render/format';
 import type { GameState, Direction } from '../sim/grid';
 
-export type Tool = 'belt' | 'miner' | 'operator' | 'splitter';
+export type Tool = 'belt' | 'miner' | 'operator' | 'splitter' | 'tunnel';
 
 export function createHud(
   parent: HTMLElement,
@@ -32,7 +32,7 @@ export function createHud(
 
   // --- build-tool selector ---
   const tools: { id: Tool; label: string }[] = [
-    { id: 'belt', label: 'Belt' }, { id: 'splitter', label: 'Split' },
+    { id: 'belt', label: 'Belt' }, { id: 'splitter', label: 'Split' }, { id: 'tunnel', label: 'Tunnel' },
     { id: 'miner', label: 'Miner' }, { id: 'operator', label: '+ Op' },
   ];
   let activeTool: Tool = 'belt';
@@ -76,7 +76,7 @@ export function createHud(
 
   const hint = document.createElement('div');
   hint.style.cssText = 'color:#000a;font-size:12px';
-  hint.textContent = 'drag = belt · click = build · R = rotate · right-drag = erase · 1-4 = tools';
+  hint.textContent = 'drag = belt · click = build · tunnel: click in then out · R = rotate · right-drag = erase · 1-5 = tools';
 
   const notYet = document.createElement('div');
   notYet.style.cssText = 'background:#ef6c00;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';

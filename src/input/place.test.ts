@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   paintBeltLine, removeCell, eraseAt, eraseLine,
-  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator, placeSplitter,
+  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator, placeSplitter, placeTunnel,
 } from './place';
-import { emptyState, beltAt, splitterAt, cellKey } from '../sim/grid';
+import { emptyState, beltAt, splitterAt, tunnelAt, cellKey } from '../sim/grid';
 import { addBuilding, buildingAt } from '../sim/buildings';
 import { createItem } from '../sim/items';
 
@@ -91,6 +91,26 @@ describe('input.splitters', () => {
     expect(eraseAt(s, 3, 3)).toBe(true);
     expect(splitterAt(s, 3, 3)).toBeUndefined();
     expect(s.items.length).toBe(0);
+  });
+});
+
+describe('input.tunnels', () => {
+  it('places tunnel entrance/exit tiles and rejects on blocked cells', () => {
+    const s = emptyState(1);
+    expect(placeTunnel(s, 0, 0, 'right', 'in')).toBe(true);
+    expect(placeTunnel(s, 3, 0, 'right', 'out')).toBe(true);
+    expect(tunnelAt(s, 0, 0)).toEqual({ type: 'tunnel', dir: 'right', role: 'in' });
+    expect(tunnelAt(s, 3, 0)).toEqual({ type: 'tunnel', dir: 'right', role: 'out' });
+    expect(placeTunnel(s, 0, 0, 'right', 'in')).toBe(false); // already occupied
+  });
+  it('belt paint does not overwrite a tunnel; erase removes it', () => {
+    const s = emptyState(1);
+    placeTunnel(s, 2, 0, 'right', 'in');
+    paintBeltLine(s, 0, 0, 4, 0, 'right');
+    expect(tunnelAt(s, 2, 0)?.role).toBe('in'); // preserved
+    expect(beltAt(s, 2, 0)).toBeUndefined();
+    expect(eraseAt(s, 2, 0)).toBe(true);
+    expect(tunnelAt(s, 2, 0)).toBeUndefined();
   });
 });
 

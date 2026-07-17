@@ -133,6 +133,19 @@ export class PixiRenderer implements Renderer {
       g.circle(ccx, ccy, cs * 0.1).fill(t.arrow);
     }
 
+    // tunnels (1x1): body + a center marker (dark = entrance/down, bright = exit/up) + dir arrow
+    for (const [key, tun] of state.tunnels) {
+      const { x, y } = parseKey(key);
+      if (!inRange(x, y)) continue;
+      const px = this.sx(x) + 2, py = this.sy(y) + 2, sz = cs - 4;
+      g.roundRect(px, py, sz, sz, t.cornerRadius).fill(t.belt);
+      g.roundRect(px, py, sz, sz, t.cornerRadius).stroke({ width: 2, color: t.beltEdge });
+      const ccx = this.sx(x) + cs / 2, ccy = this.sy(y) + cs / 2;
+      if (tun.role === 'in') g.circle(ccx, ccy, cs * 0.2).fill({ color: 0x000000, alpha: 0.55 });
+      else g.circle(ccx, ccy, cs * 0.2).fill({ color: t.item, alpha: 0.95 });
+      this.arrow(g, ccx, ccy, cs * 0.2, tun.dir, t.arrow, 1);
+    }
+
     // 3x3 buildings: body, port arrows, no-output warning, center label
     for (const b of state.buildings.values()) {
       const ax = b.ax, ay = b.ay;
@@ -194,7 +207,8 @@ export class PixiRenderer implements Renderer {
   }
 
   private carrierPresent(state: GameState, c: { x: number; y: number }): boolean {
-    return state.belts.has(`${c.x},${c.y}`) || state.splitters.has(`${c.x},${c.y}`);
+    const k = `${c.x},${c.y}`;
+    return state.belts.has(k) || state.splitters.has(k) || state.tunnels.has(k);
   }
 }
 

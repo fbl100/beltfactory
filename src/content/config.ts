@@ -9,3 +9,7 @@ export const TARGET_COUNT = 20;   // deliveries to complete the level (big enoug
 // of its 2 inputs = 60/min total), fed by miner belts at 30/min each — a clean 1 belt : 1 input.
 export const MINER_EVERY_TICKS = 5;     // 1 emit / 2s per output belt => 30/min per belt
 export const OPERATOR_EVERY_TICKS = 5;  // 1 output / 2s => 30/min out (consumes 30/min from each input)
+
+// Underground belt: the exit may sit up to this many cells ahead of the entrance,
+// so up to (TUNNEL_REACH - 1) = 4 belts can pass overhead.
+export const TUNNEL_REACH = 5;

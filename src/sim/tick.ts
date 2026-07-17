@@ -1,11 +1,12 @@
 import type { GameState } from './grid';
-import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt } from './grid';
+import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt, tunnelAt } from './grid';
 import type { Item } from './items';
 import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
 import { outCell, minerOutputs, inPortSlot, buildingAt } from './buildings';
 import { createItem } from './items';
 import { applyOp } from '../content/operations';
+import { TUNNEL_REACH } from '../content/config';
 
 // Sim rate. Items advance one cell per tick, so this is also the belt speed
 // (cells/second). The renderer interpolates between ticks, so movement stays
@@ -22,9 +23,10 @@ export function step(state: GameState): void {
   state.tick++;
 }
 
-// A cell that can receive a freshly-emitted item: an empty belt or splitter cell.
+// A cell that can receive a freshly-emitted item: an empty carrier (belt/splitter/tunnel).
 function canEmitOnto(state: GameState, x: number, y: number): boolean {
-  return (beltAt(state, x, y) !== undefined || splitterAt(state, x, y) !== undefined) && !occupied(state, x, y, null);
+  const carrier = beltAt(state, x, y) !== undefined || splitterAt(state, x, y) !== undefined || tunnelAt(state, x, y) !== undefined;
+  return carrier && !occupied(state, x, y, null);
 }
 
 // Miners are wide sources: every N ticks they emit their (cached) node value onto
@@ -74,6 +76,14 @@ function move(state: GameState): void {
         if (distributeSplitterItem(state, it, spl, moved, removed)) progressed = true;
         continue;
       }
+      const tun = tunnelAt(state, it.x, it.y);
+      if (tun) {
+        const ok = tun.role === 'out'
+          ? advanceBeltItem(state, it, tun.dir, moved, removed) // exit behaves like a belt
+          : tunnelJump(state, it, tun.dir, moved, removed);     // entrance dives to the paired exit
+        if (ok) progressed = true;
+        continue;
+      }
       moved.add(it.id); // not on a carrier
     }
   }
@@ -85,8 +95,8 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
   const { dx, dy } = DELTA[dir];
   const tx = it.x + dx, ty = it.y + dy;
 
-  // belt or splitter ahead -> advance downstream-first when it frees
-  if (beltAt(state, tx, ty) || splitterAt(state, tx, ty)) {
+  // carrier ahead (belt/splitter/tunnel) -> advance downstream-first when it frees
+  if (beltAt(state, tx, ty) || splitterAt(state, tx, ty) || tunnelAt(state, tx, ty)) {
     if (!occupied(state, tx, ty, removed)) { it.x = tx; it.y = ty; moved.add(it.id); return true; }
     return false; // blocked this pass; leave unmarked to retry as downstream drains
   }
@@ -112,6 +122,25 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
   }
 
   moved.add(it.id); return false; // empty ground / node-only cell / edge
+}
+
+// An item on a tunnel entrance dives to the nearest matching exit ahead.
+function tunnelJump(state: GameState, it: Item, dir: Direction, moved: Set<number>, removed: Set<number>): boolean {
+  const exit = pairedExit(state, it.x, it.y, dir);
+  if (!exit) { moved.add(it.id); return false; } // no exit in range -> stuck (no retry)
+  if (occupied(state, exit.x, exit.y, removed)) return false; // exit busy -> retry as it drains
+  it.x = exit.x; it.y = exit.y; moved.add(it.id); return true;
+}
+
+// The nearest tunnel 'out' with the same dir within reach ahead (surface belts in between are ignored).
+function pairedExit(state: GameState, ex: number, ey: number, dir: Direction): { x: number; y: number } | null {
+  const d = DELTA[dir];
+  for (let k = 1; k <= TUNNEL_REACH; k++) {
+    const cx = ex + d.dx * k, cy = ey + d.dy * k;
+    const t = tunnelAt(state, cx, cy);
+    if (t && t.role === 'out' && t.dir === dir) return { x: cx, y: cy };
+  }
+  return null;
 }
 
 // Round-robin an item onto the next available outgoing belt/splitter.

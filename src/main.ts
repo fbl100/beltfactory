@@ -3,12 +3,14 @@ import { DEFAULT_THEME } from './render/themes';
 import type { Theme, Camera } from './render/renderer';
 import { newGame, resetGame, ensureChunksInRange } from './sim/world';
 import { mvpGenerator } from './content/worldgen';
-import { TARGET_COUNT } from './content/config';
+import { TARGET_COUNT, TUNNEL_REACH } from './content/config';
 import { serialize, deserialize } from './sim/save';
 import { step, TICKS_PER_SECOND } from './sim/tick';
 import type { GameState, Direction } from './sim/grid';
+import { DELTA } from './sim/grid';
 import {
-  paintBeltLine, eraseLine, placeMiner, placeOperator, placeSplitter, canPlaceMiner, canPlaceOperator, ROTATE_CW,
+  paintBeltLine, eraseLine, placeMiner, placeOperator, placeSplitter, placeTunnel,
+  canPlaceMiner, canPlaceOperator, ROTATE_CW,
 } from './input/place';
 import { showLogin } from './ui/login';
 import { createHud } from './ui/hud';
@@ -54,11 +56,12 @@ async function boot() {
   let placeDir: Direction = 'right';
   let tool: Tool = 'belt';
   let hover: { x: number; y: number } | null = null;
+  let pendingTunnel: { x: number; y: number } | null = null; // entrance awaiting its exit
   const hud = createHud(
     parent,
     (t) => { theme = t; renderer.setTheme(t); },
     (d) => { placeDir = d; },
-    (tl) => { tool = tl; },
+    (tl) => { tool = tl; pendingTunnel = null; },
     () => {
       if (!confirm('Start this level over? This clears everything you built.')) return;
       resetGame(state, Date.now() >>> 0, mvpGenerator);
@@ -82,9 +85,23 @@ async function boot() {
     else if (tool === 'belt') { paintMode = 'place'; paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir); lastCell = c; }
     else if (tool === 'miner') { placeMiner(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
     else if (tool === 'operator') { placeOperator(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
-    else { placeSplitter(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
+    else if (tool === 'splitter') { placeSplitter(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
+    else { placeTunnelTool(c); paintMode = null; lastCell = null; } // tunnel
     dirty = true; e.preventDefault();
   });
+
+  // Tunnel tool: first click drops an entrance; a click ahead (same facing, in reach) drops the paired exit.
+  function placeTunnelTool(c: { x: number; y: number }) {
+    const d = DELTA[placeDir];
+    if (pendingTunnel) {
+      const dx = c.x - pendingTunnel.x, dy = c.y - pendingTunnel.y;
+      const ahead = d.dx !== 0
+        ? dy === 0 && Math.sign(dx) === Math.sign(d.dx) && Math.abs(dx) >= 1 && Math.abs(dx) <= TUNNEL_REACH
+        : dx === 0 && Math.sign(dy) === Math.sign(d.dy) && Math.abs(dy) >= 1 && Math.abs(dy) <= TUNNEL_REACH;
+      if (ahead && placeTunnel(state, c.x, c.y, placeDir, 'out')) { pendingTunnel = null; return; }
+    }
+    if (placeTunnel(state, c.x, c.y, placeDir, 'in')) pendingTunnel = c;
+  }
   canvas.addEventListener('mousemove', (e) => {
     const c = cellOf(e); hover = c;
     if (!paintMode || !lastCell) return;
@@ -102,11 +119,12 @@ async function boot() {
     renderer.setCamera(cam); e.preventDefault();
   }, { passive: false });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; hud.setDir(placeDir); return; }
-    if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); return; }
-    if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); return; }
-    if (e.key === '3') { tool = 'operator'; hud.setTool('operator'); return; }
-    if (e.key === '4') { tool = 'splitter'; hud.setTool('splitter'); return; }
+    if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; hud.setDir(placeDir); pendingTunnel = null; return; }
+    if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); pendingTunnel = null; return; }
+    if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); pendingTunnel = null; return; }
+    if (e.key === '3') { tool = 'operator'; hud.setTool('operator'); pendingTunnel = null; return; }
+    if (e.key === '4') { tool = 'splitter'; hud.setTool('splitter'); pendingTunnel = null; return; }
+    if (e.key === '5') { tool = 'tunnel'; hud.setTool('tunnel'); pendingTunnel = null; return; }
     const pan: Record<string, [number, number]> = {
       ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
     };
@@ -124,7 +142,7 @@ async function boot() {
     const cr = renderer.visibleChunkRange();
     ensureChunksInRange(state, mvpGenerator, cr.minCx, cr.minCy, cr.maxCx, cr.maxCy);
     // placement ghost for the building tools
-    if (tool === 'belt' || tool === 'splitter' || !hover) {
+    if (tool === 'belt' || tool === 'splitter' || tool === 'tunnel' || !hover) {
       renderer.setPreview(null); // 1x1 tools: no 3x3 ghost
     } else {
       const ok = tool === 'miner' ? canPlaceMiner(state, hover.x, hover.y) : canPlaceOperator(state, hover.x, hover.y);

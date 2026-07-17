@@ -1,5 +1,5 @@
 import type { GameState, Direction } from '../sim/grid';
-import { beltAt, setBelt, splitterAt, setSplitter, nodeAt, RIGHT_OF } from '../sim/grid';
+import { beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, nodeAt, RIGHT_OF } from '../sim/grid';
 import type { MinerBuilding, OperatorBuilding } from '../sim/buildings';
 import { isBlocked, buildingAt, addBuilding, removeBuildingAt } from '../sim/buildings';
 import type { OpId } from '../content/operations';
@@ -19,9 +19,9 @@ function dirBetween(ax: number, ay: number, bx: number, by: number): Direction {
 }
 
 // Place a belt on an empty cell, or re-orient an existing belt. Belts may sit over
-// a resource node (separate layer) but never over a building or splitter.
+// a resource node (separate layer) but never over a building, splitter, or tunnel.
 function placeOrOrientBelt(state: GameState, x: number, y: number, dir: Direction): void {
-  if (buildingAt(state, x, y) || splitterAt(state, x, y)) return;
+  if (buildingAt(state, x, y) || splitterAt(state, x, y) || tunnelAt(state, x, y)) return;
   const b = beltAt(state, x, y);
   if (!b) setBelt(state, x, y, { type: 'belt', dir });
   else b.dir = dir;
@@ -31,6 +31,14 @@ function placeOrOrientBelt(state: GameState, x: number, y: number, dir: Directio
 export function placeSplitter(state: GameState, x: number, y: number, dir: Direction): boolean {
   if (isBlocked(state, x, y)) return false;
   setSplitter(state, x, y, { type: 'splitter', dir, next: 0 });
+  return true;
+}
+
+// Place one underground-belt tile (entrance or exit) on an otherwise-empty cell.
+// Pairing (entrance -> nearest matching exit ahead) is resolved by the sim at run time.
+export function placeTunnel(state: GameState, x: number, y: number, dir: Direction, role: 'in' | 'out'): boolean {
+  if (isBlocked(state, x, y)) return false;
+  setTunnel(state, x, y, { type: 'tunnel', dir, role });
   return true;
 }
 
@@ -103,8 +111,9 @@ export function placeOperator(state: GameState, cx: number, cy: number, dir: Dir
 // protected (a 9-year-old can't delete the goal); nodes are never removed.
 export function eraseAt(state: GameState, x: number, y: number): boolean {
   if (removeCell(state, x, y)) return true; // belt (also drops a stranded item)
-  if (splitterAt(state, x, y)) {
+  if (splitterAt(state, x, y) || tunnelAt(state, x, y)) {
     setSplitter(state, x, y, null);
+    setTunnel(state, x, y, null);
     state.items = state.items.filter((it) => !(it.x === x && it.y === y));
     return true;
   }

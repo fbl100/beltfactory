@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cellKey, parseKey, beltAt, setBelt, splitterAt, setSplitter, nodeAt, itemAt, emptyState,
+  cellKey, parseKey, beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, nodeAt, itemAt, emptyState,
   DELTA, DIRECTIONS, OPPOSITE, RIGHT_OF, LEFT_OF,
 } from './grid';
 
@@ -24,6 +24,13 @@ describe('sparse grid', () => {
     setSplitter(s, 3, 4, null);
     expect(splitterAt(s, 3, 4)).toBeUndefined();
   });
+  it('sets, reads, and deletes tunnels', () => {
+    const s = emptyState(1);
+    setTunnel(s, 3, 4, { type: 'tunnel', dir: 'right', role: 'in' });
+    expect(tunnelAt(s, 3, 4)).toEqual({ type: 'tunnel', dir: 'right', role: 'in' });
+    setTunnel(s, 3, 4, null);
+    expect(tunnelAt(s, 3, 4)).toBeUndefined();
+  });
   it('reads a resource node', () => {
     const s = emptyState(1);
     s.nodes.set(cellKey(2, 2), { x: 2, y: 2, value: 7n });
@@ -41,6 +48,7 @@ describe('sparse grid', () => {
     expect(s.seed).toBe(99);
     expect(s.belts.size).toBe(0);
     expect(s.splitters.size).toBe(0);
+    expect(s.tunnels.size).toBe(0);
     expect(s.buildings.size).toBe(0);
     expect(s.nodes.size).toBe(0);
     expect(s.occupancy.size).toBe(0);

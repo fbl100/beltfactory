@@ -10,6 +10,8 @@ function sample() {
   s.loadedChunks.add('0,0');
   s.belts.set(cellKey(4, 2), { type: 'belt', dir: 'right' });
   s.splitters.set(cellKey(5, 5), { type: 'splitter', dir: 'right', next: 2 });
+  s.tunnels.set(cellKey(6, 0), { type: 'tunnel', dir: 'right', role: 'in' });
+  s.tunnels.set(cellKey(9, 0), { type: 'tunnel', dir: 'right', role: 'out' });
   s.nodes.set(cellKey(2, 2), { x: 2, y: 2, value: 7n });
   addBuilding(s, { type: 'miner', ax: 1, ay: 1, dir: 'right', value: 7n, everyTicks: 5, sinceEmit: 2 });
   addBuilding(s, { type: 'operator', ax: 7, ay: 4, dir: 'right', op: 'add', inputs: [7n], everyTicks: 20, sinceProduce: 3 });
@@ -36,6 +38,9 @@ describe('save', () => {
     expect(r.nodes instanceof Map).toBe(true);
     expect(beltAt(r, 4, 2)).toEqual({ type: 'belt', dir: 'right' });
     expect(r.splitters.get(cellKey(5, 5))).toEqual({ type: 'splitter', dir: 'right', next: 2 });
+    expect(r.tunnels instanceof Map).toBe(true);
+    expect(r.tunnels.get(cellKey(6, 0))).toEqual({ type: 'tunnel', dir: 'right', role: 'in' });
+    expect(r.tunnels.get(cellKey(9, 0))).toEqual({ type: 'tunnel', dir: 'right', role: 'out' });
     expect(r.nodes.get(cellKey(2, 2))?.value).toBe(7n);
     const op = [...r.buildings.values()].find((b) => b.type === 'operator') as any;
     expect(op.inputs[0]).toBe(7n);

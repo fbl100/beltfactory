@@ -84,6 +84,7 @@ export function resetGame(state: GameState, seed: number, gen: ChunkGenerator): 
   state.tick = 0;
   state.belts.clear();
   state.splitters.clear();
+  state.tunnels.clear();
   state.buildings.clear();
   state.nodes.clear();
   state.occupancy.clear();

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { step } from './tick';
-import { emptyState, setBelt, setSplitter, itemAt } from './grid';
+import { emptyState, setBelt, setSplitter, setTunnel, itemAt } from './grid';
 import type { Direction } from './grid';
 import type { BeltCell } from './entities';
 import { createItem } from './items';
@@ -128,6 +128,34 @@ describe('tick: splitter', () => {
     expect(eastId).toBeDefined();
     expect(southId).toBeDefined();
     expect(eastId).not.toBe(southId);
+  });
+});
+
+describe('tick: tunnel', () => {
+  it('an item dives at the entrance and emerges past the exit, under a crossing belt', () => {
+    const s = emptyState(1);
+    setBelt(s, -1, 0, belt('right'));
+    setTunnel(s, 0, 0, { type: 'tunnel', dir: 'right', role: 'in' });
+    // covered cells (1,0),(2,0): a surface belt crosses overhead going down
+    setBelt(s, 1, 0, belt('down'));
+    setBelt(s, 1, 1, belt('down'));
+    setTunnel(s, 3, 0, { type: 'tunnel', dir: 'right', role: 'out' });
+    setBelt(s, 4, 0, belt('right'));
+    s.items.push(createItem(1, 7n, -1, 0)); // tunneling item
+    s.items.push(createItem(2, 9n, 1, 0));  // crossing surface item
+    for (let i = 0; i < 6; i++) step(s);
+    const t1 = s.items.find((it) => it.id === 1)!;
+    const t2 = s.items.find((it) => it.id === 2)!;
+    expect(t1.x).toBeGreaterThanOrEqual(3); // emerged at/past the exit, not stuck at the entrance
+    expect(t2.y).toBeGreaterThan(0);        // crossing item went down independently (not sucked in)
+  });
+  it('an item at an entrance with no exit in range just waits (no crash)', () => {
+    const s = emptyState(1);
+    setTunnel(s, 0, 0, { type: 'tunnel', dir: 'right', role: 'in' }); // no matching exit ahead
+    s.items.push(createItem(1, 7n, 0, 0));
+    step(s);
+    expect(itemAt(s, 0, 0)?.id).toBe(1);
+    expect(s.items.length).toBe(1);
   });
 });
 
