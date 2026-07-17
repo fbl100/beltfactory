@@ -28,6 +28,20 @@ function onHub(x: number, y: number): boolean {
   return x >= HUB.minX && x <= HUB.maxX && y >= HUB.minY && y <= HUB.maxY;
 }
 
+function isPrime(n: bigint): boolean {
+  if (n < 2n) return false;
+  for (let d = 2n; d * d <= n; d++) if (n % d === 0n) return false;
+  return true;
+}
+
+// The primes of `n` restricted to those actually present in `allowed`; returns whether n is a
+// product of ONLY allowed primes (i.e. a pure × factor-tree route exists from those deposits).
+function isProductOfPrimes(n: bigint, allowed: Set<bigint>): boolean {
+  let m = n;
+  for (const p of allowed) while (m % p === 0n) m /= p;
+  return m === 1n;
+}
+
 describe('content/levels', () => {
   it('has a gentle, forgiving first level', () => {
     expect(LEVELS.length).toBeGreaterThanOrEqual(2);
@@ -47,6 +61,18 @@ describe('content/levels', () => {
       const values = cumulativeNodeValues(i);
       expect(values.length).toBeGreaterThan(0);
       expect(reachableByAddition(LEVELS[i].target, values)).toBe(true);
+    }
+  });
+
+  it('every deposit is a prime number (Prime Foundry invariant)', () => {
+    for (const lvl of LEVELS)
+      for (const n of lvl.grantNodes) expect(isPrime(n.value)).toBe(true);
+  });
+
+  it('every target is a product of the primes available by that level (the × route exists)', () => {
+    for (let i = 0; i < LEVELS.length; i++) {
+      const primes = new Set(cumulativeNodeValues(i));
+      expect(isProductOfPrimes(LEVELS[i].target, primes)).toBe(true);
     }
   });
 

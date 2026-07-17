@@ -70,9 +70,17 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
   (recommendation: "Prime Foundry" — curate prime deposits + composite targets so × is the tidy
   route; stage as per-op "islands"; addition stays possible so never-stuck holds).
 
-Status: 108 tests, tsc clean, vite build, browser-verified (advance-through-levels + resume; op
-gating + × placement; pan/zoom).
+- Prime Foundry (shipped): retuned LEVELS to a prime-factorization ladder — deposits are primes,
+  targets are composites built by multiplying them (6=2×3, 15=3×5, 35=5×7, 45=3×3×5, 105=3×5×7,
+  210=2×3×5×7; 6 levels, +/× from L1). Makes × essential; addition still possible (never stuck).
+  New tests: deposits are prime, each target is a product of available primes, still
+  addition-reachable. e2e updated (2×3→6 via a × operator). Pure data + test change; no engine
+  edits. Browser-verified: boot Make 6 with primes 2/3 and +/× offered → 2×3 factory advances to
+  Make 15 with new prime 5, toast, no misses.
 
-NEXT: **Prime Foundry** experiment (retune LEVELS to prime deposits + composite targets so × is
-essential — a pure-data change per the design doc); then procedural deposits beyond the origin
-chunk; retune/extend the ladder.
+Status: 110 tests, tsc clean, vite build, browser-verified (Prime Foundry advance; op gating;
+pan/zoom; resume).
+
+NEXT: playtest Prime Foundry (does × click for her? retune targets/counts); then Era Islands
+(per-operator islands + procedural deposits beyond origin — old islands persist), a division
+Breaker Yard island, and optional Number Golf pars (see docs/design/2026-07-16-*).
