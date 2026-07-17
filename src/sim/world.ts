@@ -76,3 +76,22 @@ export function newGame(seed: number, gen: ChunkGenerator): GameState {
   ensureChunk(s, gen, 0, 0); // origin chunk holds the starting puzzle
   return s;
 }
+
+// Reset an existing game IN PLACE (so all live references keep working): clear the
+// world and player build, then regenerate the origin puzzle fresh.
+export function resetGame(state: GameState, seed: number, gen: ChunkGenerator): void {
+  state.seed = seed;
+  state.tick = 0;
+  state.belts.clear();
+  state.splitters.clear();
+  state.buildings.clear();
+  state.nodes.clear();
+  state.occupancy.clear();
+  state.loadedChunks.clear();
+  state.items = [];
+  state.nextItemId = 1;
+  state.delivered = 0;
+  state.misses = 0;
+  state.status = 'playing';
+  ensureChunk(state, gen, 0, 0);
+}

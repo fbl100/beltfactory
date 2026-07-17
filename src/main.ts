@@ -1,8 +1,9 @@
 import { createPixiRenderer } from './render/pixi-renderer';
 import { DEFAULT_THEME } from './render/themes';
 import type { Theme, Camera } from './render/renderer';
-import { newGame, ensureChunksInRange } from './sim/world';
+import { newGame, resetGame, ensureChunksInRange } from './sim/world';
 import { mvpGenerator } from './content/worldgen';
+import { TARGET_COUNT } from './content/config';
 import { serialize, deserialize } from './sim/save';
 import { step, TICKS_PER_SECOND } from './sim/tick';
 import type { GameState, Direction } from './sim/grid';
@@ -23,13 +24,21 @@ function loadOrNewGame(saved: string | null): GameState {
     try {
       const s = deserialize(saved);
       if (Array.isArray(s.items) && s.belts instanceof Map && s.buildings instanceof Map
-        && s.nodes instanceof Map && s.loadedChunks instanceof Set) return s;
+        && s.nodes instanceof Map && s.loadedChunks instanceof Set) { healLevel(s); return s; }
     } catch {
       // unreadable / old-version save -> start fresh
     }
     console.warn('Ignoring an unreadable save; starting a new game.');
   }
   return newGame(Date.now() >>> 0, mvpGenerator);
+}
+
+// Repair older/partial saves so the level goal is never undefined.
+function healLevel(s: GameState): void {
+  if (typeof s.delivered !== 'number') s.delivered = 0;
+  for (const b of s.buildings.values()) {
+    if (b.type === 'target' && typeof b.required !== 'number') b.required = TARGET_COUNT;
+  }
 }
 
 async function boot() {
@@ -50,6 +59,12 @@ async function boot() {
     (t) => { theme = t; renderer.setTheme(t); },
     (d) => { placeDir = d; },
     (tl) => { tool = tl; },
+    () => {
+      if (!confirm('Start this level over? This clears everything you built.')) return;
+      resetGame(state, Date.now() >>> 0, mvpGenerator);
+      dirty = true;
+      apiSaveState(serialize(state)); // overwrite the old save right away
+    },
   );
 
   const canvas = renderer['app'].canvas as HTMLCanvasElement;

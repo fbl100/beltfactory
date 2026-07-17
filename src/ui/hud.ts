@@ -10,6 +10,7 @@ export function createHud(
   onTheme: (t: Theme) => void,
   onDir: (d: Direction) => void,
   onTool: (t: Tool) => void,
+  onReset: () => void,
 ) {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;top:8px;left:8px;right:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:system-ui;z-index:5';
@@ -68,6 +69,11 @@ export function createHud(
   for (const th of THEMES) { const o = document.createElement('option'); o.value = th.id; o.textContent = th.name; sel.appendChild(o); }
   sel.addEventListener('change', () => onTheme(THEMES.find((x) => x.id === sel.value)!));
 
+  const reset = document.createElement('button');
+  reset.textContent = 'Reset';
+  reset.style.cssText = 'padding:6px 10px;border-radius:8px;border:0;background:#c62828;color:#fff;font-weight:700;cursor:pointer';
+  reset.addEventListener('click', () => onReset());
+
   const hint = document.createElement('div');
   hint.style.cssText = 'color:#000a;font-size:12px';
   hint.textContent = 'drag = belt · click = build · R = rotate · right-drag = erase · 1-4 = tools';
@@ -80,7 +86,7 @@ export function createHud(
   banner.style.cssText = 'margin-left:auto;background:#2e7d32;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
   banner.textContent = '🎉 You did it!';
 
-  bar.append(target, progWrap, toolWrap, dirWrap, sel, hint, notYet, banner);
+  bar.append(target, progWrap, toolWrap, dirWrap, sel, reset, hint, notYet, banner);
   parent.appendChild(bar);
 
   let lastMisses = 0;
@@ -93,7 +99,7 @@ export function createHud(
       target.textContent = `Make ${goal}`;
       const pct = required > 0 ? Math.min(100, Math.round((100 * state.delivered) / required)) : 0;
       progFill.style.width = `${pct}%`;
-      progText.textContent = `${state.delivered}/${required}`;
+      progText.textContent = required > 0 ? `${state.delivered}/${required}` : `${state.delivered}`;
       banner.style.display = state.status === 'won' ? 'block' : 'none';
       if (state.misses > lastMisses) { flash = 90; lastMisses = state.misses; }
       if (flash > 0) { flash--; notYet.style.display = 'block'; } else notYet.style.display = 'none';

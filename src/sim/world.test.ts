@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CHUNK_SIZE, chunkOfCell, chunkKey, ensureChunk, newGame } from './world';
+import { CHUNK_SIZE, chunkOfCell, chunkKey, ensureChunk, newGame, resetGame } from './world';
 import type { ChunkGenerator } from './world';
 import { emptyState, beltAt, cellKey } from './grid';
 import { buildingAt } from './buildings';
@@ -43,5 +43,18 @@ describe('chunks', () => {
     const s = newGame(7, gen);
     expect(s.seed).toBe(7);
     expect(buildingAt(s, 2, 2)?.type).toBe('miner');
+  });
+  it('resetGame clears the build and regenerates the origin in place', () => {
+    const s = newGame(7, gen);
+    s.belts.set(cellKey(9, 9), { type: 'belt', dir: 'right' });
+    s.delivered = 5; s.status = 'won'; s.tick = 100;
+    resetGame(s, 8, gen);
+    expect(s.seed).toBe(8);
+    expect(s.tick).toBe(0);
+    expect(s.delivered).toBe(0);
+    expect(s.status).toBe('playing');
+    expect(beltAt(s, 9, 9)).toBeUndefined();          // player build cleared
+    expect(beltAt(s, 6, 6)).toBeTruthy();             // origin regenerated (authored belt)
+    expect(buildingAt(s, 2, 2)?.type).toBe('miner');  // origin regenerated (authored miner)
   });
 });
