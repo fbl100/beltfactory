@@ -4,7 +4,10 @@ import { outCell, inPortSlot, buildingAt } from './buildings';
 import { createItem } from './items';
 import { applyOp } from '../content/operations';
 
-export const TICKS_PER_SECOND = 10;
+// Sim rate. Items advance one cell per tick, so this is also the belt speed
+// (cells/second). The renderer interpolates between ticks, so movement stays
+// smooth. 2.5/s = quarter of the original 10/s (kid-followable pacing).
+export const TICKS_PER_SECOND = 2.5;
 
 export function step(state: GameState): void {
   for (const it of state.items) { it.px = it.x; it.py = it.y; }
