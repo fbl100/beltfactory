@@ -29,11 +29,18 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
 - Throughput rates + count-based level with a progress bar (b7b0c34): miners ~30/min,
   operators throttled ~7.5/min; target needs TARGET_COUNT deliveries; save v3.
 - Splitters (ce3b5ef): 1x1 round-robin belt junctions (own layer); "Split" tool (hotkey 4).
-  Unblocks feeding 2 adders from one miner AND reaching numbers beyond 7+5=12.
+- Wide miner + 3-side operator (501de1b): miner emits from its 3 open sides (9 cells);
+  operator takes inputs on 3 non-front sides, outputs front-center.
+- Rate tuning (9350b9e): operator 30/min out (30/min per input), miner 30/min per belt,
+  level count 20 (2-in-1-out halving accounted for).
+- Reset button + save heal (1c59295): Reset clears/regenerates the level; old saves heal so
+  the count can't be undefined.
+- Belt tunnels (e38bd5b): Factorio-style underground belts (own layer); "Tunnel" tool
+  (hotkey 5); exit up to 5 cells ahead => up to 4 belts overhead. Completes the core mechanics.
 
-Status: 74 tests, tsc clean, vite build, browser-verified (place miners/operator/splitter,
-route belts, progress bar advances, resume).
+Status: 83 tests, tsc clean, vite build, browser-verified for splitters, wide-miner,
+reset, and tunnels.
 
 NEXT: multi-target progression (advancing targets + more operators/nodes as you go — now
-reachable via splitters); subtraction / × / ÷ as editable content data; procedural deposits
-beyond the origin chunk; drag-to-pan; and an adversarial code-review pass over the rework.
+reachable via splitters/tunnels); subtraction / × / ÷ as editable content data; procedural
+deposits beyond the origin chunk; drag-to-pan; adversarial code-review pass over the rework.
