@@ -2,6 +2,7 @@ import type { GameState } from './grid';
 import { cellKey } from './grid';
 import type { Building } from './buildings';
 import { isBlocked } from './buildings';
+import { ensureMiners } from './world';
 import { levelAt } from '../content/levels';
 import type { GrantNode } from '../content/levels';
 
@@ -46,6 +47,7 @@ export function reconcileLevel(state: GameState): void {
   // A migrated/edited save can carry a full-or-over bar; snap it to a clean start so it doesn't
   // instant-advance on the first tick (checkLevel advances at >=).
   if (hub && hub.type === 'target' && state.delivered >= hub.required) state.delivered = 0;
+  ensureMiners(state); // backfill an automatic miner on every deposit (incl. old saves without one)
 }
 
 // Called once per tick (AFTER move() settles) when the delivery bar is full. Advances the SAME
@@ -60,6 +62,7 @@ export function advanceLevel(state: GameState, hub: Building): void {
   hub.required = next.required;
   state.delivered = 0;
   for (const n of next.grantNodes) grantNode(state, n);
+  ensureMiners(state); // a newly-granted deposit gets its automatic miner right away
 }
 
 // Drop a deposit into the world. Nodes never block, but a miner needs a clear 3x3 centered

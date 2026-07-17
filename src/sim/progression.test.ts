@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { emptyState, setBelt } from './grid';
 import type { GameState } from './grid';
-import { addBuilding } from './buildings';
+import { addBuilding, buildingAt } from './buildings';
 import { advanceLevel, reconcileLevel, syncTargetToLevel, targetHub } from './progression';
-import { canPlaceMiner } from '../input/place';
 import { LEVELS, levelAt } from '../content/levels';
 
 const LAST = LEVELS.length - 1;
@@ -63,7 +62,7 @@ describe('progression: advanceLevel', () => {
     const node = [...s.nodes.values()].find((n) => n.value === spot.value);
     expect(node).toBeDefined();
     expect(node!.x === spot.x && node!.y === spot.y).toBe(false); // moved off the buried cell
-    expect(canPlaceMiner(s, node!.x, node!.y)).toBe(true);        // and a miner fits there
+    expect(buildingAt(s, node!.x, node!.y)?.type).toBe('miner');  // and got its automatic miner
   });
 });
 

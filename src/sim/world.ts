@@ -1,8 +1,8 @@
 import type { GameState, Direction } from './grid';
-import { cellKey, emptyState } from './grid';
+import { cellKey, emptyState, setBelt, setSplitter, setTunnel } from './grid';
 import type { ResourceNode } from './entities';
 import type { Building } from './buildings';
-import { isBlocked, addBuilding, rebuildOccupancy } from './buildings';
+import { isBlocked, addBuilding, buildingAt, rebuildOccupancy } from './buildings';
 import type { OpId } from '../content/operations';
 import { MINER_EVERY_TICKS, OPERATOR_EVERY_TICKS } from '../content/config';
 
@@ -71,16 +71,42 @@ export function ensureChunksInRange(
       ensureChunk(state, gen, cx, cy);
 }
 
+// Miners are fully automatic: every deposit gets one, no player action needed. For each node whose
+// center isn't already covered by a building, clear its whole 3x3 footprint (belts/splitters/tunnels
+// + any in-flight items) — the miner OVERRIDES whatever was there — then drop a permanent miner
+// anchored at (node.x-1, node.y-1). Idempotent: a node that already has a building is skipped, so
+// calling this repeatedly (newGame, load, level-up) never double-places or disturbs a running mine.
+export function ensureMiners(state: GameState): void {
+  for (const node of state.nodes.values()) {
+    if (buildingAt(state, node.x, node.y) !== undefined) continue;
+    for (let dy = -1; dy <= 1; dy++)
+      for (let dx = -1; dx <= 1; dx++) {
+        setBelt(state, node.x + dx, node.y + dy, null);
+        setSplitter(state, node.x + dx, node.y + dy, null);
+        setTunnel(state, node.x + dx, node.y + dy, null);
+      }
+    state.items = state.items.filter(
+      (it) => Math.abs(it.x - node.x) > 1 || Math.abs(it.y - node.y) > 1,
+    );
+    addBuilding(state, {
+      type: 'miner', ax: node.x - 1, ay: node.y - 1, dir: 'right',
+      value: node.value, everyTicks: MINER_EVERY_TICKS, sinceEmit: 0,
+    });
+  }
+}
+
 export function newGame(seed: number, gen: ChunkGenerator): GameState {
   const s = emptyState(seed);
   ensureChunk(s, gen, 0, 0); // origin chunk holds the starting puzzle
+  ensureMiners(s);           // auto-place a miner on every starting deposit
   return s;
 }
 
-// Clear the player's BUILD on the current level (belts/splitters/tunnels + miners/operators +
-// in-flight items) for a fresh attempt at the SAME puzzle. Keeps the level, its target hub (which
-// is un-erasable and defines the goal), the revealed deposits, and the loaded chunks. The progress
-// bar resets since the factory that filled it is gone. Contrast resetGame, a full "start over".
+// Clear the player's BUILD on the current level (belts/splitters/tunnels + operators + in-flight
+// items) for a fresh attempt at the SAME puzzle. Keeps the level, its target hub (un-erasable, it
+// defines the goal), the revealed deposits, the loaded chunks, and the automatic miners (which are
+// permanent — ensureMiners restores them after the wipe). The progress bar resets since the factory
+// that filled it is gone. Contrast resetGame, a full "start over".
 export function clearBuild(state: GameState): void {
   state.belts.clear();
   state.splitters.clear();
@@ -91,6 +117,7 @@ export function clearBuild(state: GameState): void {
   state.nextItemId = 1;
   state.delivered = 0;
   state.misses = 0;
+  ensureMiners(state); // miners are permanent — put them back on every deposit
 }
 
 // Reset an existing game IN PLACE (so all live references keep working): clear the

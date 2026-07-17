@@ -4,7 +4,7 @@ services:
     ports:
       - "8080:3000"
     environment:
-      - SEED_USERS=${SEED_USERS:-dad:changeme,kid:apples}
+      - SEED_USERS=${SEED_USERS:-dad:changeme,abby:apples}
       - SESSION_SECRET=${SESSION_SECRET:-please-change-this}
       - DATA_DIR=/app/data
     volumes:

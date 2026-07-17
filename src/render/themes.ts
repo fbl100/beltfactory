@@ -33,4 +33,4 @@ export const THEMES: Theme[] = [
   },
 ];
 
-export const DEFAULT_THEME: Theme = THEMES[0];
+export const DEFAULT_THEME: Theme = THEMES[2]; // Neon Arcade (playtester's pick)

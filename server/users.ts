@@ -5,7 +5,7 @@ export interface User { username: string; hash: string }
 // SEED_USERS format: "dad:secret1,kid:apples" — plaintext, hashed at startup.
 // Private family app; keep it simple. Change via .env.
 export function loadUsers(): User[] {
-  const raw = process.env.SEED_USERS ?? 'dad:changeme,kid:apples';
+  const raw = process.env.SEED_USERS ?? 'dad:changeme,abby:apples';
   const users: User[] = [];
   for (const pair of raw.split(',')) {
     const [rawUser, rawPass] = pair.split(':');

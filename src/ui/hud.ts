@@ -1,12 +1,12 @@
 import type { Theme } from '../render/renderer';
-import { THEMES } from '../render/themes';
+import { THEMES, DEFAULT_THEME } from '../render/themes';
 import { formatValue } from '../render/format';
 import type { GameState } from '../sim/grid';
 import { LEVELS, ENDLESS_START, opsForLevel } from '../content/levels';
 import { ALL_OPS, OPERATIONS } from '../content/operations';
 import type { OpId } from '../content/operations';
 
-export type Tool = 'belt' | 'miner' | 'operator' | 'splitter' | 'tunnel';
+export type Tool = 'belt' | 'operator' | 'splitter' | 'tunnel' | 'eraser';
 
 export function createHud(
   parent: HTMLElement,
@@ -40,9 +40,12 @@ export function createHud(
   // No 'operator' entry: the op-type buttons (+ − × ÷) below both select the operator tool AND pick
   // the operation in one click (and hotkey 3 selects it), so a separate "+ Op" button was redundant
   // — and its "+" was easily mistaken for the addition operator sitting right beside it.
+  // No 'miner' entry: miners are fully automatic — one is placed on every deposit and can't be
+  // removed (see ensureMiners). The Eraser is a dedicated left-click delete tool for a young player
+  // who finds right-drag-to-erase fiddly.
   const tools: { id: Tool; label: string }[] = [
     { id: 'belt', label: 'Belt' }, { id: 'splitter', label: 'Split' }, { id: 'tunnel', label: 'Tunnel' },
-    { id: 'miner', label: 'Miner' },
+    { id: 'eraser', label: 'Erase' },
   ];
   let activeTool: Tool = 'belt';
   const toolWrap = document.createElement('div'); toolWrap.style.cssText = 'display:flex;gap:4px';
@@ -78,6 +81,7 @@ export function createHud(
   // --- theme switcher ---
   const sel = document.createElement('select'); sel.style.cssText = 'padding:6px;border-radius:8px';
   for (const th of THEMES) { const o = document.createElement('option'); o.value = th.id; o.textContent = th.name; sel.appendChild(o); }
+  sel.value = DEFAULT_THEME.id; // match the theme the renderer actually boots with (Neon Arcade)
   sel.addEventListener('change', () => onTheme(THEMES.find((x) => x.id === sel.value)!));
 
   // Clear Map: wipe what you built on THIS level (keep the level + goal). Start Over: full restart.
@@ -93,7 +97,7 @@ export function createHud(
 
   const hint = document.createElement('div');
   hint.style.cssText = 'color:#000a;font-size:12px';
-  hint.textContent = 'drag = belt · scroll or space-drag = pan · pinch or +/− = zoom · R = rotate · right-drag = erase · 1-5 = tools';
+  hint.textContent = 'drag = belt · scroll or space-drag = pan · pinch or +/− = zoom · R = rotate · Eraser tool or right-drag = erase · 1-6 = tools';
 
   const notYet = document.createElement('div');
   notYet.style.cssText = 'background:#ef6c00;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';

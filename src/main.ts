@@ -12,8 +12,8 @@ import { reconcileLevel } from './sim/progression';
 import type { GameState, Direction } from './sim/grid';
 import { DELTA, parseKey } from './sim/grid';
 import {
-  paintBeltLine, eraseLine, placeMiner, placeOperator, placeSplitter, placeTunnel,
-  canPlaceMiner, canPlaceOperator, ROTATE_CW,
+  paintBeltLine, eraseLine, placeOperator, placeSplitter, placeTunnel,
+  canPlaceOperator, ROTATE_CW,
 } from './input/place';
 import { showLogin } from './ui/login';
 import { createHud } from './ui/hud';
@@ -116,12 +116,11 @@ async function boot() {
       canvas.style.cursor = 'grabbing'; e.preventDefault(); return;
     }
     const c = cellOf(e);
-    if (e.button === 2) { paintMode = 'erase'; beltAnchor = null; eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; }
+    if (e.button === 2 || tool === 'eraser') { paintMode = 'erase'; beltAnchor = null; eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; }
     else if (tool === 'belt') {
       paintMode = 'place'; downCell = c; anchorAtDown = beltAnchor; dragMoved = false; lastCell = c;
       paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir); // immediate single-belt feedback
     }
-    else if (tool === 'miner') { placeMiner(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
     else if (tool === 'operator') { placeOperator(state, c.x, c.y, placeDir, currentOp()); paintMode = null; lastCell = null; }
     else if (tool === 'splitter') { placeSplitter(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
     else { placeTunnelTool(c); paintMode = null; lastCell = null; } // tunnel
@@ -175,7 +174,7 @@ async function boot() {
   canvas.addEventListener('wheel', (e) => {
     // Trackpad pinch (and ctrl+wheel) zoom; plain two-finger scroll pans (Mac-native canvas feel).
     if (e.ctrlKey) {
-      cam.zoom = Math.max(12, Math.min(96, cam.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+      cam.zoom = Math.max(12, Math.min(96, cam.zoom * (e.deltaY < 0 ? 1.05 : 0.95)));
     } else {
       cam.x += e.deltaX / cam.zoom;
       cam.y += e.deltaY / cam.zoom;
@@ -188,10 +187,10 @@ async function boot() {
     if (e.key === '-' || e.key === '_') { cam.zoom = Math.max(12, cam.zoom * 0.9); renderer.setCamera(cam); return; }
     if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); pendingTunnel = null; beltAnchor = null; return; }
-    if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '3') { tool = 'operator'; hud.setTool('operator'); pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '4') { tool = 'splitter'; hud.setTool('splitter'); pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '5') { tool = 'tunnel'; hud.setTool('tunnel'); pendingTunnel = null; beltAnchor = null; return; }
+    if (e.key === '6') { tool = 'eraser'; hud.setTool('eraser'); pendingTunnel = null; beltAnchor = null; return; }
     const pan: Record<string, [number, number]> = {
       ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
     };
@@ -217,15 +216,15 @@ async function boot() {
     const cr = renderer.visibleChunkRange();
     ensureChunksInRange(state, mvpGenerator, cr.minCx, cr.minCy, cr.maxCx, cr.maxCy);
     // placement ghost for the building tools
-    if (tool === 'belt' || tool === 'splitter' || tool === 'tunnel' || !hover) {
-      renderer.setPreview(null); // 1x1 tools: no 3x3 ghost
+    if (tool !== 'operator' || !hover) {
+      renderer.setPreview(null); // 1x1 tools + eraser: no 3x3 ghost (only the operator is a building now)
     } else {
-      const ok = tool === 'miner' ? canPlaceMiner(state, hover.x, hover.y) : canPlaceOperator(state, hover.x, hover.y, placeDir);
-      // Miner/target are 3x3; a 1x3 operator's bar lies perpendicular to its output dir.
-      const horizBar = tool === 'operator' && (placeDir === 'up' || placeDir === 'down');
-      const vertBar = tool === 'operator' && (placeDir === 'left' || placeDir === 'right');
-      const w = tool === 'miner' ? 3 : horizBar ? 3 : 1;
-      const h = tool === 'miner' ? 3 : vertBar ? 3 : 1;
+      const ok = canPlaceOperator(state, hover.x, hover.y, placeDir);
+      // A 1x3 operator's bar lies perpendicular to its output dir.
+      const horizBar = placeDir === 'up' || placeDir === 'down';
+      const vertBar = placeDir === 'left' || placeDir === 'right';
+      const w = horizBar ? 3 : 1;
+      const h = vertBar ? 3 : 1;
       const ox = hover.x - (w === 3 ? 1 : 0);
       const oy = hover.y - (h === 3 ? 1 : 0);
       renderer.setPreview({ type: tool, ox, oy, w, h, dir: placeDir, valid: ok });

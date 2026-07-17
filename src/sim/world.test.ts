@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CHUNK_SIZE, chunkOfCell, chunkKey, ensureChunk, newGame, resetGame, clearBuild } from './world';
+import { CHUNK_SIZE, chunkOfCell, chunkKey, ensureChunk, ensureMiners, newGame, resetGame, clearBuild } from './world';
 import type { ChunkGenerator } from './world';
 import { emptyState, beltAt, splitterAt, cellKey } from './grid';
 import { addBuilding, buildingAt } from './buildings';
@@ -72,12 +72,34 @@ describe('chunks', () => {
 
     expect(s.levelIndex).toBe(2);                         // level kept (not a full reset)
     expect(buildingAt(s, 21, 21)?.type).toBe('target');   // target hub kept + occupancy intact
-    expect(buildingAt(s, 2, 2)).toBeUndefined();          // miner cleared
+    expect(buildingAt(s, 2, 2)?.type).toBe('miner');      // miner kept (auto-placed + permanent)
     expect(beltAt(s, 9, 9)).toBeUndefined();              // belts cleared
     expect(splitterAt(s, 10, 9)).toBeUndefined();         // splitters cleared
     expect(s.items.length).toBe(0);                       // in-flight items cleared
     expect(s.nodes.get(cellKey(2, 2))?.value).toBe(7n);   // deposit kept
     expect(s.delivered).toBe(0); expect(s.misses).toBe(0); // progress reset (its factory is gone)
     expect(s.loadedChunks.size).toBe(chunksBefore);       // chunks/map kept
+  });
+});
+
+describe('ensureMiners (automatic, override, idempotent)', () => {
+  it('puts exactly one miner on every node, overriding a belt under its footprint', () => {
+    const s = emptyState(1);
+    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 2n });
+    s.nodes.set(cellKey(20, 8), { x: 20, y: 8, value: 3n });
+    // A belt inside the first node's 3x3 footprint must be overridden (cleared) by the miner.
+    s.belts.set(cellKey(4, 5), { type: 'belt', dir: 'right' });
+
+    ensureMiners(s);
+
+    expect(buildingAt(s, 5, 5)?.type).toBe('miner');
+    expect((buildingAt(s, 5, 5) as any).value).toBe(2n);
+    expect(buildingAt(s, 20, 8)?.type).toBe('miner');
+    expect(beltAt(s, 4, 5)).toBeUndefined(); // belt under the footprint was cleared
+    const miners = [...s.buildings.values()].filter((b) => b.type === 'miner');
+    expect(miners.length).toBe(2); // one per node, no more
+
+    ensureMiners(s); // idempotent: a node that already has a miner is skipped
+    expect([...s.buildings.values()].filter((b) => b.type === 'miner').length).toBe(2);
   });
 });

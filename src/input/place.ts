@@ -121,8 +121,9 @@ export function placeOperator(state: GameState, cx: number, cy: number, dir: Dir
 
 // ---------- erase ----------
 
-// Erase a belt, or a whole building (from any of its cells). The target hub is
-// protected (a 9-year-old can't delete the goal); nodes are never removed.
+// Erase a belt, or an OPERATOR (from any of its cells). The target hub and the automatic miners
+// are protected: a 9-year-old can't delete the goal, and miners are permanent (they auto-respawn
+// on every deposit). Nodes are never removed.
 export function eraseAt(state: GameState, x: number, y: number): boolean {
   if (removeCell(state, x, y)) return true; // belt (also drops a stranded item)
   if (splitterAt(state, x, y) || tunnelAt(state, x, y)) {
@@ -132,7 +133,7 @@ export function eraseAt(state: GameState, x: number, y: number): boolean {
     return true;
   }
   const b = buildingAt(state, x, y);
-  if (b && b.type !== 'target') return removeBuildingAt(state, x, y);
+  if (b && b.type === 'operator') return removeBuildingAt(state, x, y);
   return false;
 }
 

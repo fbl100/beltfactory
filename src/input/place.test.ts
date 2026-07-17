@@ -133,6 +133,14 @@ describe('input.erase', () => {
     expect(eraseAt(s, 1, 1)).toBe(false);
     expect(buildingAt(s, 1, 1)?.type).toBe('target');
   });
+  it('refuses to erase a miner (miners are automatic + permanent)', () => {
+    const s = emptyState(1);
+    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
+    expect(placeMiner(s, 5, 5, 'right')).toBe(true);
+    expect(eraseAt(s, 5, 5)).toBe(false);      // center cell
+    expect(eraseAt(s, 4, 4)).toBe(false);      // a non-anchor footprint cell
+    expect(buildingAt(s, 5, 5)?.type).toBe('miner');
+  });
   it('eraseLine removes belts along a path but leaves nodes', () => {
     const s = emptyState(1);
     paintBeltLine(s, 0, 0, 3, 0, 'right');

@@ -9,17 +9,16 @@ import { newGame } from './sim/world';
 import { mvpGenerator } from './content/worldgen';
 import { LEVELS } from './content/levels';
 import { step } from './sim/tick';
-import { paintBeltLine, placeMiner, placeOperator } from './input/place';
+import { paintBeltLine, placeOperator } from './input/place';
 import { buildingAt } from './sim/buildings';
 import { nodeAt } from './sim/grid';
 import type { GameState } from './sim/grid';
 import { serialize, deserialize } from './sim/save';
 
-// Place the two miners + a × operator, then route belts to the target (verified vs. port geometry).
-// This factory makes 6 (=2×3): it can complete level 0 and advance once to level 1.
+// Miners are auto-placed by newGame on the 2 and 3 deposits, so here we only add the × operator and
+// route belts to the target (verified vs. port geometry). This factory makes 6 (=2×3): it completes
+// level 0 and advances once to level 1.
 function build(s: GameState): void {
-  placeMiner(s, 2, 2, 'right');                 // on the 2 node -> out (4,2)
-  placeMiner(s, 2, 12, 'right');                // on the 3 node -> out (4,12)
   placeOperator(s, 8, 5, 'right', 'multiply');  // 1x3 vertical: center (8,5); tips (8,4)/(8,6); out (9,5)
   // 2-line: (4,2) across then down into the operator top tip (8,4)
   paintBeltLine(s, 4, 2, 8, 2, 'right');
@@ -40,12 +39,12 @@ function runUntilLevel(s: GameState, level: number, maxTicks = 2000): number {
 }
 
 describe('e2e: beltmatic puzzle loop', () => {
-  it('authors level-0 deposits + a target; the machines are player-placed', () => {
+  it('authors level-0 deposits + a target; miners are auto-placed, operator is player-placed', () => {
     const s = newGame(1, mvpGenerator);
     expect(nodeAt(s, 2, 2)?.value).toBe(2n);
     expect(nodeAt(s, 2, 12)?.value).toBe(3n);
-    expect(buildingAt(s, 2, 2)).toBeUndefined(); // no miner until the player places one
-    expect(buildingAt(s, 8, 5)).toBeUndefined(); // no operator yet
+    expect(buildingAt(s, 2, 2)?.type).toBe('miner'); // miner auto-placed on the deposit
+    expect(buildingAt(s, 8, 5)).toBeUndefined();     // no operator yet (player builds it)
     const t = buildingAt(s, 13, 5);
     expect(t?.type).toBe('target');
     expect((t as any).target).toBe(LEVELS[0].target);
