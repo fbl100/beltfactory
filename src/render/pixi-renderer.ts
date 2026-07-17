@@ -173,11 +173,14 @@ export class PixiRenderer implements Renderer {
           const ex = this.sx(cxWorld + d.dx) + cs / 2, ey = this.sy(cyWorld + d.dy) + cs / 2;
           if (port.role === 'out') this.arrow(g, ex, ey, cs * 0.28, port.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
           else this.arrow(g, ex, ey, cs * 0.18, port.dir, t.arrow, 0.55);
+          // labeled ports (e.g. operator A / B inputs) — nudged toward the body so the label
+          // doesn't sit on the port arrow. (Rudimentary; a skin pass can lay this out nicely.)
+          if (port.label) label(port.label, ex - d.dx * cs * 0.3, ey - d.dy * cs * 0.3, t.buildingText, Math.max(8, Math.round(cs * 0.22)));
         }
       }
 
       const text = b.type === 'miner' ? formatValue(b.value)
-        : b.type === 'operator' ? (OPERATIONS[b.op]?.symbol ?? '?')
+        : b.type === 'operator' ? `A${OPERATIONS[b.op]?.symbol ?? '?'}B` // e.g. "A×B" — the operation, Beltmatic-style
         : formatValue(b.target);
       const centerPx = this.sx(cxWorld) + cs / 2, centerPy = this.sy(cyWorld) + cs / 2;
       label(text, centerPx, centerPy, t.buildingText, fitSize(text, FOOTPRINT * cs, Math.round(cs * 0.9)));

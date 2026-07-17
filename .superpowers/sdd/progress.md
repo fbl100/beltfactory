@@ -88,8 +88,14 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
   are transient, reset on load). Regression test (same-belt items never pair) + browser-verified
   (skewed-timing 2×3 factory only ever emits 2/3/6 — no 4 or 9).
 
-Status: 112 tests, tsc clean, vite build, browser-verified (Prime Foundry {2,3} advance + spacing;
-op one-per-side fix; op gating; pan/zoom; resume).
+- Miners emit on all 4 sides (12 cells; dir vestigial). Operators relabeled: two named input ports
+  A (LEFT_OF) and B (RIGHT_OF) flank the front output; back side reserved for a future 2nd output
+  (divisor quotient+remainder). Renders "A×B" + A/B port labels (rudimentary — a skin pass later).
+  operatorSides() is the geometry source of truth; tick delivery accepts only the A/B sides; ops
+  stay order-independent. (Concept-focused per user; another agent will skin.) Browser-verified.
+
+Status: 112 tests, tsc clean, vite build, browser-verified (miner 4-side emit; labeled A/B operator
+still makes 6 and advances; Prime Foundry advance + spacing; op one-per-side fix; pan/zoom; resume).
 
 NEXT: Era Islands (per-operator islands + procedural deposits beyond origin — old islands persist),
 a division Breaker Yard island, and optional Number Golf pars (see docs/design/2026-07-16-*).

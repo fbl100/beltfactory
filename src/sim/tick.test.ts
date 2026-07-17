@@ -87,19 +87,16 @@ describe('tick: operator', () => {
     step(s); // produce() sees 2 inputs -> emits 12 on the out belt
     expect(itemAt(s, 4, 2)?.value).toBe(12n);
   });
-  it('accepts inputs from the back side too (3 non-front sides)', () => {
+  it('ignores the reserved back side — only the A and B inputs count', () => {
     const s = emptyState(1);
     const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 };
-    addBuilding(s, o); // center (2,2); out (4,2); back-center in (1,2); top-center in (2,1)
-    setBelt(s, 0, 2, belt('right')); // feeds the back input (1,2)
-    setBelt(s, 2, 0, belt('down'));  // feeds the top input (2,1)
+    addBuilding(s, o); // center (2,2); dir right -> A=up (2,1), B=down (2,3), out (4,2), back=left (1,2) reserved
+    setBelt(s, 0, 2, belt('right')); // feeds the reserved back side (1,2)
     setBelt(s, 4, 2, belt('right')); // out
     s.items.push(createItem(1, 7n, 0, 2));
-    s.items.push(createItem(2, 5n, 2, 0));
-    step(s);
-    expect(s.items.length).toBe(0);
-    step(s);
-    expect(itemAt(s, 4, 2)?.value).toBe(12n);
+    for (let i = 0; i < 4; i++) step(s);
+    expect((buildingAt(s, 2, 2) as OperatorBuilding).inputs.length).toBe(0); // back input not accepted
+    expect(itemAt(s, 0, 2)?.id).toBe(1); // the 7 is stuck on its belt, not consumed
   });
   it('applies the operator op (× here) to its two inputs', () => {
     const s = emptyState(1);

@@ -58,19 +58,26 @@ export function minerOutputs(b: Building): { x: number; y: number; dir: Directio
   return cells;
 }
 
-export interface Port { role: 'in' | 'out'; slot: number; side: Direction; dir: Direction }
+export interface Port { role: 'in' | 'out'; slot: number; side: Direction; dir: Direction; label?: string }
 
-// Cold path (render draws arrows from this). `dir` = travel-through direction:
+// An operator's labeled ports for its facing: inputs A and B flank the single output (the front).
+// The back side is intentionally left free — a future 2-output op (e.g. a divisor emitting the
+// quotient out the front and the remainder out the back) would use it. A and B are interchangeable
+// for today's order-independent ops; the labels are for legibility and forward-compatibility.
+export function operatorSides(dir: Direction): { A: Direction; B: Direction; out: Direction; spare: Direction } {
+  return { A: LEFT_OF[dir], B: RIGHT_OF[dir], out: dir, spare: OPPOSITE[dir] };
+}
+
+// Cold path (render draws arrows + labels from this). `dir` = travel-through direction:
 // out ports flow outward along `side`; in ports flow inward (OPPOSITE[side]).
 export function portsOf(b: Building): Port[] {
   if (b.type === 'miner') return DIRECTIONS.map((s) => ({ role: 'out' as const, slot: 0, side: s, dir: s }));
   if (b.type === 'operator') {
-    const l = LEFT_OF[b.dir], r = RIGHT_OF[b.dir], back = OPPOSITE[b.dir];
+    const s = operatorSides(b.dir);
     return [
-      { role: 'out', slot: 0, side: b.dir, dir: b.dir },
-      { role: 'in', slot: 0, side: back, dir: OPPOSITE[back] },
-      { role: 'in', slot: 1, side: l, dir: OPPOSITE[l] },
-      { role: 'in', slot: 2, side: r, dir: OPPOSITE[r] },
+      { role: 'out', slot: 0, side: s.out, dir: s.out },
+      { role: 'in', slot: 0, side: s.A, dir: OPPOSITE[s.A], label: 'A' },
+      { role: 'in', slot: 1, side: s.B, dir: OPPOSITE[s.B], label: 'B' },
     ];
   }
   return DIRECTIONS.map((s) => ({ role: 'in' as const, slot: 0, side: s, dir: OPPOSITE[s] }));
@@ -79,13 +86,8 @@ export function portsOf(b: Building): Port[] {
 // Hot path: is (x,y) an IN-port EDGE cell of b (center + DELTA[side])? Returns the
 // slot, or -1. No allocation. Miner has no inputs; front out-edge/back/corners/center are -1.
 export function inPortSlot(b: Building, x: number, y: number): number {
-  if (b.type === 'miner') return -1;
-  if (b.type === 'operator') {
-    // Inputs on the 3 non-front sides: a footprint cell is an input unless it's on
-    // the front (output) edge — i.e. unless the cell ahead of it (in dir) is outside.
-    const fd = DELTA[b.dir];
-    return coversCell(b, x + fd.dx, y + fd.dy) ? 0 : -1;
-  }
+  // Miners have no in-ports; operators use side-based delivery to their A/B ports (see tick.ts).
+  if (b.type !== 'target') return -1;
   // target: any of the four edge-center cells
   const cx = b.ax + 1, cy = b.ay + 1;
   for (const s of DIRECTIONS) {

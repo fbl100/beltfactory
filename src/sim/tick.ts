@@ -3,7 +3,7 @@ import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt, tunnelAt } from './gri
 import type { Item } from './items';
 import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
-import { outCell, minerOutputs, inPortSlot, buildingAt } from './buildings';
+import { outCell, minerOutputs, inPortSlot, buildingAt, operatorSides } from './buildings';
 import { createItem } from './items';
 import { advanceLevel, isStaleTargetValue } from './progression';
 import { applyOp } from '../content/operations';
@@ -119,14 +119,16 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
   const b = buildingAt(state, tx, ty);
   if (b) {
     if (b.type === 'operator') {
-      // The side the item enters on is opposite its travel dir; the front (b.dir) is the output,
-      // not an input. Keep at most one pending value PER side so two items from the SAME belt
-      // can't pair (which produced e.g. 3×3=9 instead of 2×3=6).
+      // Two labeled inputs (A, B) flank the output; the back side is reserved (a future 2-output
+      // op would use it). The entry side is opposite the item's travel dir. Keep at most one
+      // pending value PER side so two items from the SAME belt can't pair (which produced e.g.
+      // 3×3=9 instead of 2×3=6).
+      const sides = operatorSides(b.dir);
       const side = OPPOSITE[dir];
-      if (side !== b.dir && !b.inputs.some((p) => p.side === side)) {
+      if ((side === sides.A || side === sides.B) && !b.inputs.some((p) => p.side === side)) {
         b.inputs.push({ side, value: it.value }); removed.add(it.id); return true;
       }
-      moved.add(it.id); return false; // output side, or this side already holds a pending value -> wait
+      moved.add(it.id); return false; // output side, reserved back side, or this input already full
     }
     const slot = inPortSlot(b, tx, ty);
     if (b.type === 'target' && slot >= 0) {

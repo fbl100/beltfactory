@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { emptyState, cellKey } from './grid';
 import type { Direction } from './grid';
 import {
-  centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf,
+  centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf, operatorSides,
   addBuilding, removeBuildingAt, buildingAt, isBlocked, rebuildOccupancy,
 } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
@@ -41,14 +41,11 @@ describe('building geometry', () => {
     expect(outs.filter((o) => o.dir === 'left').map((o) => `${o.x},${o.y}`).sort()).toEqual(['-1,0', '-1,1', '-1,2']); // back side now emits too
     expect(new Set(outs.map((o) => `${o.x},${o.y}`)).size).toBe(12); // all distinct
   });
-  it('operator: inputs on the 3 non-front sides, output on the front', () => {
-    const b = op(0, 0, 'right'); // center (1,1); front (output) edge = x=2 column
-    expect(inPortSlot(b, 1, 0)).toBe(0);  // top side
-    expect(inPortSlot(b, 1, 2)).toBe(0);  // bottom side
-    expect(inPortSlot(b, 0, 1)).toBe(0);  // back side (now an input)
-    expect(inPortSlot(b, 2, 1)).toBe(-1); // front out-edge (output, not input)
-    expect(inPortSlot(b, 2, 0)).toBe(-1); // front corner
-    expect(outCell(b)).toEqual({ x: 3, y: 1 });
+  it('operator: A/B inputs flank the output; back reserved; inPortSlot unused for operators', () => {
+    const b = op(0, 0, 'right'); // center (1,1); dir right
+    expect(operatorSides('right')).toEqual({ A: 'up', B: 'down', out: 'right', spare: 'left' });
+    expect(outCell(b)).toEqual({ x: 3, y: 1 }); // output out the front
+    expect(inPortSlot(b, 1, 0)).toBe(-1); // operators use side-based delivery (tick), not inPortSlot
   });
   it('target accepts on all four edges but not corners', () => {
     const b = target(0, 0, 'right'); // center (1,1)
@@ -58,10 +55,12 @@ describe('building geometry', () => {
     expect(inPortSlot(b, 1, 2)).toBe(0);
     expect(inPortSlot(b, 0, 0)).toBe(-1);
   });
-  it('portsOf: miner 4 out; operator 1 out + 3 in; target 4 in', () => {
+  it('portsOf: miner 4 out; operator A/B in + 1 out; target 4 in', () => {
     expect(portsOf(miner(0, 0, 'right')).filter((p) => p.role === 'out').length).toBe(4);
     const ports = portsOf(op(0, 0, 'right'));
-    expect(ports.filter((p) => p.role === 'in').length).toBe(3);
+    const ins = ports.filter((p) => p.role === 'in');
+    expect(ins.length).toBe(2);
+    expect(ins.map((p) => p.label).sort()).toEqual(['A', 'B']); // labeled input ports
     expect(ports.filter((p) => p.role === 'out').length).toBe(1);
     expect(portsOf(target(0, 0, 'right')).filter((p) => p.role === 'in').length).toBe(4);
   });
