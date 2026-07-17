@@ -36,6 +36,7 @@ describe('sparse grid', () => {
     expect(s.buildings.size).toBe(0);
     expect(s.nodes.size).toBe(0);
     expect(s.occupancy.size).toBe(0);
+    expect(s.delivered).toBe(0);
     expect(s.misses).toBe(0);
     expect(s.version).toBe(2);
     expect(s.status).toBe('playing');

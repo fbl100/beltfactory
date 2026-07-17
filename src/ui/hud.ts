@@ -17,6 +17,18 @@ export function createHud(
   const target = document.createElement('div');
   target.style.cssText = 'background:#000a;color:#fff;padding:6px 12px;border-radius:8px;font-weight:700';
 
+  // --- progress bar (delivered / required) ---
+  const progWrap = document.createElement('div');
+  progWrap.style.cssText = 'display:flex;align-items:center;gap:6px';
+  const progBar = document.createElement('div');
+  progBar.style.cssText = 'width:120px;height:12px;background:#0003;border-radius:6px;overflow:hidden';
+  const progFill = document.createElement('div');
+  progFill.style.cssText = 'height:100%;width:0%;background:#2e7d32;transition:width .2s';
+  progBar.appendChild(progFill);
+  const progText = document.createElement('div');
+  progText.style.cssText = 'color:#000a;font-weight:700;font-size:12px';
+  progWrap.append(progBar, progText);
+
   // --- build-tool selector ---
   const tools: { id: Tool; label: string }[] = [
     { id: 'belt', label: 'Belt' }, { id: 'miner', label: 'Miner' }, { id: 'operator', label: '+ Op' },
@@ -67,7 +79,7 @@ export function createHud(
   banner.style.cssText = 'margin-left:auto;background:#2e7d32;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
   banner.textContent = '🎉 You did it!';
 
-  bar.append(target, toolWrap, dirWrap, sel, hint, notYet, banner);
+  bar.append(target, progWrap, toolWrap, dirWrap, sel, hint, notYet, banner);
   parent.appendChild(bar);
 
   let lastMisses = 0;
@@ -75,8 +87,12 @@ export function createHud(
   return {
     update(state: GameState) {
       let goal = '?';
-      for (const b of state.buildings.values()) if (b.type === 'target') { goal = formatValue(b.target); break; }
-      target.textContent = `Target: ${goal}`;
+      let required = 0;
+      for (const b of state.buildings.values()) if (b.type === 'target') { goal = formatValue(b.target); required = b.required; break; }
+      target.textContent = `Make ${goal}`;
+      const pct = required > 0 ? Math.min(100, Math.round((100 * state.delivered) / required)) : 0;
+      progFill.style.width = `${pct}%`;
+      progText.textContent = `${state.delivered}/${required}`;
       banner.style.display = state.status === 'won' ? 'block' : 'none';
       if (state.misses > lastMisses) { flash = 90; lastMisses = state.misses; }
       if (flash > 0) { flash--; notYet.style.display = 'block'; } else notYet.style.display = 'none';

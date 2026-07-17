@@ -62,7 +62,7 @@ describe('tick: miner', () => {
 describe('tick: operator', () => {
   it('combines two side inputs and emits the sum after a one-tick settle', () => {
     const s = emptyState(1);
-    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [] };
+    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 };
     addBuilding(s, o); // center (2,2); in edges (2,1)&(2,3); out (4,2)
     setBelt(s, 2, 0, belt('down')); // external belt feeding the top in-port
     setBelt(s, 2, 4, belt('up'));   // external belt feeding the bottom in-port
@@ -77,29 +77,34 @@ describe('tick: operator', () => {
 });
 
 describe('tick: target / win', () => {
-  it('wins when the exact target value arrives', () => {
+  it('counts each correct delivery and wins at the required count', () => {
     const s = emptyState(1);
-    const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n };
+    const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 };
     addBuilding(s, t); // center (1,1); accepts on all 4 edges (left edge = (0,1))
     setBelt(s, -1, 1, belt('right')); // feeds the left edge (0,1)
     s.items.push(createItem(1, 9n, -1, 1));
     step(s);
-    expect(s.items.length).toBe(0);
-    expect(s.status).toBe('won');
+    expect(s.delivered).toBe(1);
+    expect(s.status).toBe('playing'); // 1 of 2
+    s.items.push(createItem(2, 9n, -1, 1));
+    step(s);
+    expect(s.delivered).toBe(2);
+    expect(s.status).toBe('won'); // reached the required count
   });
-  it('counts a miss without winning on a wrong value', () => {
+  it('counts a miss (not a delivery) on a wrong value', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n });
+    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 3 });
     setBelt(s, -1, 1, belt('right'));
     s.items.push(createItem(1, 8n, -1, 1));
     step(s);
     expect(s.items.length).toBe(0);
+    expect(s.delivered).toBe(0);
     expect(s.status).toBe('playing');
     expect(s.misses).toBe(1);
   });
   it('an item stepping onto a non-port footprint cell stops (no crash, no consume)', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [] }); // center (2,2)
+    addBuilding(s, { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 }); // center (2,2)
     setBelt(s, 0, 1, belt('right')); // (0,1) -> corner (1,1), not an in-port
     s.items.push(createItem(1, 3n, 0, 1));
     step(s);

@@ -1,11 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { mvpGenerator, TARGET } from './worldgen';
+import { mvpGenerator } from './worldgen';
+import { TARGET, TARGET_COUNT } from './config';
 
 describe('mvp world generation', () => {
   it('places nodes 7 and 5 and a target hub in the origin chunk (machines are player-placed)', () => {
     const c = mvpGenerator(0, 0, 0);
     expect((c.nodes ?? []).map((n) => n.value).sort()).toEqual([5n, 7n]);
-    expect((c.buildings ?? []).map((b) => b.type)).toEqual(['target']);
+    const targets = (c.buildings ?? []).filter((b) => b.type === 'target');
+    expect(targets.length).toBe(1);
+    expect((targets[0] as any).target).toBe(TARGET);
+    expect((targets[0] as any).required).toBe(TARGET_COUNT);
     for (const n of c.nodes ?? []) { expect(n.x).toBeGreaterThanOrEqual(0); expect(n.x).toBeLessThan(16); }
     for (const b of c.buildings ?? []) { expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x).toBeLessThan(16); }
   });

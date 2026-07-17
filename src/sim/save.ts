@@ -1,7 +1,7 @@
 import type { GameState } from './grid';
 import { rebuildOccupancy } from './buildings';
 
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 // JSON has no BigInt: encode as { __big: "<decimal>" } and revive on load.
 function replacer(_key: string, value: unknown): unknown {
@@ -19,6 +19,7 @@ export function serialize(state: GameState): string {
     tick: state.tick,
     status: state.status,
     nextItemId: state.nextItemId,
+    delivered: state.delivered,
     items: state.items,
     belts: [...state.belts.entries()],
     buildings: [...state.buildings.entries()],
@@ -37,6 +38,7 @@ export function deserialize(json: string): GameState {
     tick: o.tick,
     status: o.status,
     nextItemId: o.nextItemId,
+    delivered: o.delivered ?? 0,
     items: o.items,
     belts: new Map(o.belts),
     buildings: new Map(o.buildings),

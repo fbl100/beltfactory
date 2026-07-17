@@ -6,13 +6,13 @@ import { createItem } from './items';
 
 function sample() {
   const s = emptyState(4242);
-  s.tick = 12; s.nextItemId = 3;
+  s.tick = 12; s.nextItemId = 3; s.delivered = 4;
   s.loadedChunks.add('0,0');
   s.belts.set(cellKey(4, 2), { type: 'belt', dir: 'right' });
   s.nodes.set(cellKey(2, 2), { x: 2, y: 2, value: 7n });
-  addBuilding(s, { type: 'miner', ax: 1, ay: 1, dir: 'right', value: 7n, everyTicks: 8, sinceEmit: 2 });
-  addBuilding(s, { type: 'operator', ax: 7, ay: 4, dir: 'right', op: 'add', inputs: [7n] });
-  addBuilding(s, { type: 'target', ax: 12, ay: 4, dir: 'right', target: 30n });
+  addBuilding(s, { type: 'miner', ax: 1, ay: 1, dir: 'right', value: 7n, everyTicks: 5, sinceEmit: 2 });
+  addBuilding(s, { type: 'operator', ax: 7, ay: 4, dir: 'right', op: 'add', inputs: [7n], everyTicks: 20, sinceProduce: 3 });
+  addBuilding(s, { type: 'target', ax: 12, ay: 4, dir: 'right', target: 30n, required: 8 });
   s.items.push(createItem(1, 9999999999n, 4, 2));
   return s;
 }
@@ -22,7 +22,12 @@ describe('save', () => {
     const r = deserialize(serialize(sample()));
     expect(r.seed).toBe(4242);
     expect(r.tick).toBe(12);
-    expect(r.version).toBe(2);
+    expect(r.delivered).toBe(4);
+    expect(r.version).toBe(3);
+    const tgt = [...r.buildings.values()].find((b) => b.type === 'target') as any;
+    expect(tgt.required).toBe(8);
+    const opBuilding = [...r.buildings.values()].find((b) => b.type === 'operator') as any;
+    expect(opBuilding.everyTicks).toBe(20);
     expect(r.loadedChunks.has('0,0')).toBe(true);
     expect(r.belts instanceof Map).toBe(true);
     expect(r.buildings instanceof Map).toBe(true);

@@ -5,7 +5,8 @@
 // and the resumed game still wins.
 import { describe, it, expect } from 'vitest';
 import { newGame } from './sim/world';
-import { mvpGenerator, TARGET } from './content/worldgen';
+import { mvpGenerator } from './content/worldgen';
+import { TARGET, TARGET_COUNT } from './content/config';
 import { step } from './sim/tick';
 import { paintBeltLine, placeMiner, placeOperator } from './input/place';
 import { buildingAt } from './sim/buildings';
@@ -28,7 +29,7 @@ function build(s: GameState): void {
   paintBeltLine(s, 10, 5, 11, 5, 'right');
 }
 
-function runToWin(s: GameState, maxTicks = 400): number {
+function runToWin(s: GameState, maxTicks = 2000): number {
   for (let i = 0; i < maxTicks; i++) {
     if (s.status === 'won') return i;
     step(s);
@@ -43,10 +44,13 @@ describe('e2e: beltmatic puzzle loop', () => {
     expect(nodeAt(s, 2, 8)?.value).toBe(5n);
     expect(buildingAt(s, 2, 2)).toBeUndefined(); // no miner until the player places one
     expect(buildingAt(s, 8, 5)).toBeUndefined(); // no operator yet
-    const t = buildingAt(s, 13, 5); expect(t?.type).toBe('target'); expect((t as any).target).toBe(TARGET);
+    const t = buildingAt(s, 13, 5);
+    expect(t?.type).toBe('target');
+    expect((t as any).target).toBe(TARGET);
+    expect((t as any).required).toBe(TARGET_COUNT);
   });
 
-  it('places miners + operator, routes belts, and wins', () => {
+  it('places miners + operator, routes belts, and wins after delivering the required count', () => {
     const s = newGame(1, mvpGenerator);
     build(s);
     expect(buildingAt(s, 2, 2)?.type).toBe('miner');
@@ -54,6 +58,7 @@ describe('e2e: beltmatic puzzle loop', () => {
     expect(buildingAt(s, 8, 5)?.type).toBe('operator');
     const ticks = runToWin(s);
     expect(ticks).toBeGreaterThan(0);
+    expect(s.delivered).toBeGreaterThanOrEqual(TARGET_COUNT);
     expect(s.status).toBe('won');
     expect(s.misses).toBe(0);
   });

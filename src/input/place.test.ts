@@ -22,7 +22,7 @@ describe('input.belts (footprint-aware)', () => {
   });
   it('does not paint over a building footprint', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'operator', ax: 2, ay: -1, dir: 'right', op: 'add', inputs: [] }); // covers x2..4, y-1..1
+    addBuilding(s, { type: 'operator', ax: 2, ay: -1, dir: 'right', op: 'add', inputs: [], everyTicks: 20, sinceProduce: 0 }); // covers x2..4, y-1..1
     paintBeltLine(s, 0, 0, 5, 0, 'right');
     expect(beltAt(s, 1, 0)).toEqual({ type: 'belt', dir: 'right' });
     expect(beltAt(s, 2, 0)).toBeUndefined(); // building cell — skipped
@@ -84,7 +84,7 @@ describe('input.erase', () => {
   });
   it('refuses to erase the target', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 12n });
+    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 12n, required: 5 });
     expect(eraseAt(s, 1, 1)).toBe(false);
     expect(buildingAt(s, 1, 1)?.type).toBe('target');
   });

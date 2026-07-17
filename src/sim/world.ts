@@ -4,6 +4,7 @@ import type { ResourceNode } from './entities';
 import type { Building } from './buildings';
 import { isBlocked, addBuilding } from './buildings';
 import type { OpId } from '../content/operations';
+import { MINER_EVERY_TICKS, OPERATOR_EVERY_TICKS } from '../content/config';
 
 export const CHUNK_SIZE = 16;
 
@@ -11,7 +12,7 @@ export const CHUNK_SIZE = 16;
 export type AuthoredBuilding =
   | { type: 'miner'; x: number; y: number; dir: Direction }
   | { type: 'operator'; x: number; y: number; dir: Direction; op: OpId }
-  | { type: 'target'; x: number; y: number; dir: Direction; target: bigint };
+  | { type: 'target'; x: number; y: number; dir: Direction; target: bigint; required: number };
 
 export interface ChunkContent {
   belts?: { x: number; y: number; dir: Direction }[];
@@ -35,11 +36,11 @@ function instantiateBuilding(state: GameState, ab: AuthoredBuilding): void {
   if (ab.type === 'miner') {
     const node = state.nodes.get(cellKey(ab.x + 1, ab.y + 1)); // center = anchor + (1,1)
     if (!node) return;
-    b = { type: 'miner', ax: ab.x, ay: ab.y, dir: ab.dir, value: node.value, everyTicks: 8, sinceEmit: 0 };
+    b = { type: 'miner', ax: ab.x, ay: ab.y, dir: ab.dir, value: node.value, everyTicks: MINER_EVERY_TICKS, sinceEmit: 0 };
   } else if (ab.type === 'operator') {
-    b = { type: 'operator', ax: ab.x, ay: ab.y, dir: ab.dir, op: ab.op, inputs: [] };
+    b = { type: 'operator', ax: ab.x, ay: ab.y, dir: ab.dir, op: ab.op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
   } else {
-    b = { type: 'target', ax: ab.x, ay: ab.y, dir: ab.dir, target: ab.target };
+    b = { type: 'target', ax: ab.x, ay: ab.y, dir: ab.dir, target: ab.target, required: ab.required };
   }
   addBuilding(state, b); // rejects on footprint conflict, so resume stays non-destructive
 }

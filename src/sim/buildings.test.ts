@@ -10,9 +10,9 @@ import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './building
 const miner = (ax: number, ay: number, dir: Direction): MinerBuilding =>
   ({ type: 'miner', ax, ay, dir, value: 7n, everyTicks: 8, sinceEmit: 0 });
 const op = (ax: number, ay: number, dir: Direction): OperatorBuilding =>
-  ({ type: 'operator', ax, ay, dir, op: 'add', inputs: [] });
+  ({ type: 'operator', ax, ay, dir, op: 'add', inputs: [], everyTicks: 20, sinceProduce: 0 });
 const target = (ax: number, ay: number, dir: Direction): TargetBuilding =>
-  ({ type: 'target', ax, ay, dir, target: 12n });
+  ({ type: 'target', ax, ay, dir, target: 12n, required: 5 });
 
 describe('building geometry', () => {
   it('center, footprint, coversCell', () => {

@@ -29,6 +29,7 @@ export interface GameState {
   loadedChunks: Set<string>;
   items: Item[];
   nextItemId: number;
+  delivered: number;                     // correct targets delivered toward the level's required count
   misses: number;                        // wrong-value-at-target count (feedback; not serialized)
   status: 'playing' | 'won';
 }
@@ -65,6 +66,6 @@ export function emptyState(seed: number): GameState {
     version: 2, seed, tick: 0,
     belts: new Map(), buildings: new Map(), nodes: new Map(), occupancy: new Map(),
     loadedChunks: new Set(),
-    items: [], nextItemId: 1, misses: 0, status: 'playing',
+    items: [], nextItemId: 1, delivered: 0, misses: 0, status: 'playing',
   };
 }

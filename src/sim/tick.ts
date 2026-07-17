@@ -34,14 +34,18 @@ function mine(state: GameState): void {
   }
 }
 
-// Operators holding two inputs emit a OP b onto the belt at their output cell.
+// Operators holding two inputs emit a OP b onto the belt at their output cell,
+// rate-limited by everyTicks (the throughput cap that makes ratios matter).
 function produce(state: GameState): void {
   for (const b of state.buildings.values()) {
-    if (b.type !== 'operator' || b.inputs.length < 2) continue;
+    if (b.type !== 'operator') continue;
+    b.sinceProduce++;
+    if (b.inputs.length < 2 || b.sinceProduce < b.everyTicks) continue;
     const { x, y } = outCell(b);
     if (beltAt(state, x, y) && !occupied(state, x, y, null)) {
       state.items.push(createItem(state.nextItemId++, applyOp(b.op, b.inputs[0], b.inputs[1]), x, y));
       b.inputs.splice(0, 2);
+      b.sinceProduce = 0;
     }
   }
 }
@@ -74,8 +78,12 @@ function move(state: GameState): void {
           if (b.inputs.length < 2) { b.inputs.push(it.value); removed.add(it.id); progressed = true; }
           else moved.add(it.id); // back-pressure: both inputs full
         } else if (b.type === 'target' && slot >= 0) {
-          if (it.value === b.target) state.status = 'won';
-          else state.misses++;
+          if (it.value === b.target) {
+            state.delivered++;
+            if (state.delivered >= b.required) state.status = 'won';
+          } else {
+            state.misses++;
+          }
           removed.add(it.id); progressed = true;
         } else {
           moved.add(it.id); // non-port footprint cell / miner face -> stop, harmless

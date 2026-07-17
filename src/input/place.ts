@@ -3,6 +3,7 @@ import { beltAt, setBelt, nodeAt, RIGHT_OF } from '../sim/grid';
 import type { MinerBuilding, OperatorBuilding } from '../sim/buildings';
 import { isBlocked, buildingAt, addBuilding, removeBuildingAt } from '../sim/buildings';
 import type { OpId } from '../content/operations';
+import { MINER_EVERY_TICKS, OPERATOR_EVERY_TICKS } from '../content/config';
 
 // Rotating a facing clockwise (R key) reuses the direction algebra.
 export const ROTATE_CW = RIGHT_OF;
@@ -76,7 +77,7 @@ export function canPlaceOperator(state: GameState, cx: number, cy: number): bool
   return footprintClear(state, cx, cy);
 }
 
-export function placeMiner(state: GameState, cx: number, cy: number, dir: Direction, everyTicks = 8): boolean {
+export function placeMiner(state: GameState, cx: number, cy: number, dir: Direction, everyTicks = MINER_EVERY_TICKS): boolean {
   const node = nodeAt(state, cx, cy);
   if (!node || !footprintClear(state, cx, cy)) return false;
   const b: MinerBuilding = { type: 'miner', ax: cx - 1, ay: cy - 1, dir, value: node.value, everyTicks, sinceEmit: 0 };
@@ -85,7 +86,7 @@ export function placeMiner(state: GameState, cx: number, cy: number, dir: Direct
 
 export function placeOperator(state: GameState, cx: number, cy: number, dir: Direction, op: OpId = 'add'): boolean {
   if (!footprintClear(state, cx, cy)) return false;
-  const b: OperatorBuilding = { type: 'operator', ax: cx - 1, ay: cy - 1, dir, op, inputs: [] };
+  const b: OperatorBuilding = { type: 'operator', ax: cx - 1, ay: cy - 1, dir, op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
   return addBuilding(state, b);
 }
 
