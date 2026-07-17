@@ -83,7 +83,7 @@ export function createHud(
 
   const hint = document.createElement('div');
   hint.style.cssText = 'color:#000a;font-size:12px';
-  hint.textContent = 'drag = belt · click = build · tunnel: click in then out · R = rotate · right-drag = erase · 1-5 = tools';
+  hint.textContent = 'drag = belt · scroll or space-drag = pan · pinch or +/− = zoom · R = rotate · right-drag = erase · 1-5 = tools';
 
   const notYet = document.createElement('div');
   notYet.style.cssText = 'background:#ef6c00;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';

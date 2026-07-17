@@ -100,7 +100,15 @@ async function boot() {
   let downCell: { x: number; y: number } | null = null;
   let anchorAtDown: { x: number; y: number } | null = null;
   let dragMoved = false;
+  // Pan-by-drag: middle-button drag, or space-held left drag. Records the grab origin (screen px)
+  // and the camera at grab time; mousemove then drags the world under the cursor.
+  let panning: { sx: number; sy: number; camX: number; camY: number } | null = null;
+  let spaceDown = false;
   canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 1 || (e.button === 0 && spaceDown)) {
+      panning = { sx: e.clientX, sy: e.clientY, camX: cam.x, camY: cam.y };
+      canvas.style.cursor = 'grabbing'; e.preventDefault(); return;
+    }
     const c = cellOf(e);
     if (e.button === 2) { paintMode = 'erase'; beltAnchor = null; eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; }
     else if (tool === 'belt') {
@@ -127,6 +135,11 @@ async function boot() {
     if (placeTunnel(state, c.x, c.y, placeDir, 'in')) pendingTunnel = c;
   }
   canvas.addEventListener('mousemove', (e) => {
+    if (panning) { // drag the world under the cursor
+      cam.x = panning.camX - (e.clientX - panning.sx) / cam.zoom;
+      cam.y = panning.camY - (e.clientY - panning.sy) / cam.zoom;
+      renderer.setCamera(cam); return;
+    }
     const c = cellOf(e); hover = c;
     if (!paintMode || !lastCell) return;
     if (c.x === lastCell.x && c.y === lastCell.y) return;
@@ -136,6 +149,7 @@ async function boot() {
     lastCell = c; dirty = true;
   });
   const endPaint = () => {
+    if (panning) { panning = null; canvas.style.cursor = spaceDown ? 'grab' : ''; return; }
     if (paintMode === 'place' && tool === 'belt' && downCell) {
       if (dragMoved) {
         beltAnchor = null; // a drag is a complete line
@@ -153,10 +167,19 @@ async function boot() {
   canvas.addEventListener('mouseleave', () => { endPaint(); hover = null; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('wheel', (e) => {
-    cam.zoom = Math.max(12, Math.min(96, cam.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+    // Trackpad pinch (and ctrl+wheel) zoom; plain two-finger scroll pans (Mac-native canvas feel).
+    if (e.ctrlKey) {
+      cam.zoom = Math.max(12, Math.min(96, cam.zoom * (e.deltaY < 0 ? 1.1 : 0.9)));
+    } else {
+      cam.x += e.deltaX / cam.zoom;
+      cam.y += e.deltaY / cam.zoom;
+    }
     renderer.setCamera(cam); e.preventDefault();
   }, { passive: false });
   window.addEventListener('keydown', (e) => {
+    if (e.key === ' ') { spaceDown = true; if (!panning) canvas.style.cursor = 'grab'; e.preventDefault(); return; } // hold space, drag to pan
+    if (e.key === '+' || e.key === '=') { cam.zoom = Math.min(96, cam.zoom * 1.1); renderer.setCamera(cam); return; }
+    if (e.key === '-' || e.key === '_') { cam.zoom = Math.max(12, cam.zoom * 0.9); renderer.setCamera(cam); return; }
     if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); pendingTunnel = null; beltAnchor = null; return; }
@@ -169,6 +192,7 @@ async function boot() {
     const d = pan[e.key];
     if (d) { cam.x += d[0]; cam.y += d[1]; renderer.setCamera(cam); }
   });
+  window.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceDown = false; if (!panning) canvas.style.cursor = ''; } });
 
   // --- fixed-timestep sim loop + rAF render ---
   const tickMs = 1000 / TICKS_PER_SECOND;

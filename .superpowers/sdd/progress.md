@@ -63,8 +63,16 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
   (0 confirmed findings). Browser-verified: only + at L1, all four at L5, placing a × operator
   renders/persists as multiply.
 
-Status: 108 tests, tsc clean, vite build, browser-verified (advance-through-levels + resume; op
-gating + × placement).
+- Pan/zoom controls (main.ts): drag-to-pan shipped — trackpad two-finger scroll pans + pinch
+  (ctrl+wheel) zooms (Mac-native); space-drag and middle-drag also pan; +/− keys zoom; arrow
+  keys still pan. Removed the HUD ▲▼◀▶ direction buttons (rotate with R). Browser-verified.
+- Design brainstorm for making − / × / ÷ essential: docs/design/2026-07-16-making-operators-essential.md
+  (recommendation: "Prime Foundry" — curate prime deposits + composite targets so × is the tidy
+  route; stage as per-op "islands"; addition stays possible so never-stuck holds).
 
-NEXT: procedural deposits beyond the origin chunk; drag-to-pan; retune/extend the ladder (and
-consider targets that *require* − / × / ÷, since the current ladder is addition-reachable).
+Status: 108 tests, tsc clean, vite build, browser-verified (advance-through-levels + resume; op
+gating + × placement; pan/zoom).
+
+NEXT: **Prime Foundry** experiment (retune LEVELS to prime deposits + composite targets so × is
+essential — a pure-data change per the design doc); then procedural deposits beyond the origin
+chunk; retune/extend the ladder.

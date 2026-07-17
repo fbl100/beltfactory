@@ -108,4 +108,6 @@ Beltmatic-style game on `feat/mvp` (plan: `docs/superpowers/plans/2026-07-16-bel
 
 Verified: **108 unit/integration tests**, `tsc`, `vite build`, and multiple real-browser runs (build via tools, route to win/advance, reload/resume; splitters, tunnels, reset, click-belts, level-up→toast→new-deposit, and op-gating + × placement each proven). Progression and operators were each designed/reviewed via adversarial workflows (findings fixed).
 
-Next: procedural deposits beyond the origin chunk; drag-to-pan; retune/extend the ladder (and add targets that *require* − / × / ÷ — the current ladder is addition-reachable, so those ops are bonus tools today).
+Controls: drag-to-pan shipped — trackpad two-finger scroll pans, pinch (ctrl+wheel) zooms; space-drag/middle-drag also pan; `+`/`−` keys zoom; arrow keys still pan; `R` rotates.
+
+Next: **Prime Foundry** (make × essential by curating prime deposits + composite targets — a pure `LEVELS` data change; see `docs/design/2026-07-16-making-operators-essential.md`); then procedural deposits beyond the origin chunk; retune/extend the ladder.
