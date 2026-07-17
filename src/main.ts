@@ -1,7 +1,7 @@
 import { createPixiRenderer } from './render/pixi-renderer';
 import { DEFAULT_THEME } from './render/themes';
 import type { Theme, Camera } from './render/renderer';
-import { newGame, resetGame, ensureChunksInRange } from './sim/world';
+import { newGame, resetGame, clearBuild, ensureChunksInRange } from './sim/world';
 import { mvpGenerator } from './content/worldgen';
 import { opsForLevel } from './content/levels';
 import type { OpId } from './content/operations';
@@ -70,13 +70,19 @@ async function boot() {
     (t) => { theme = t; renderer.setTheme(t); },
     (tl) => { tool = tl; pendingTunnel = null; beltAnchor = null; },
     () => {
-      if (!confirm('Start this level over? This clears everything you built.')) return;
+      if (!confirm('Start over from Level 1? This wipes ALL progress and everything you built.')) return;
       resetGame(state, Date.now() >>> 0, mvpGenerator);
       lastLevelIndex = state.levelIndex;
       seenNodeKeys.clear();
       for (const k of state.nodes.keys()) seenNodeKeys.add(k);
       dirty = true;
       apiSaveState(serialize(state)); // overwrite the old save right away
+    },
+    () => {
+      if (!confirm('Clear everything you built on this level? You keep the level and its goal.')) return;
+      clearBuild(state);
+      dirty = true;
+      apiSaveState(serialize(state)); // persist the cleared build
     },
   );
 

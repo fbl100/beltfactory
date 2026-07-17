@@ -13,6 +13,7 @@ export function createHud(
   onTheme: (t: Theme) => void,
   onTool: (t: Tool) => void,
   onReset: () => void,
+  onClearMap: () => void,
 ) {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;top:8px;left:8px;right:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:system-ui;z-index:5';
@@ -76,8 +77,14 @@ export function createHud(
   for (const th of THEMES) { const o = document.createElement('option'); o.value = th.id; o.textContent = th.name; sel.appendChild(o); }
   sel.addEventListener('change', () => onTheme(THEMES.find((x) => x.id === sel.value)!));
 
+  // Clear Map: wipe what you built on THIS level (keep the level + goal). Start Over: full restart.
+  const clearMap = document.createElement('button');
+  clearMap.textContent = 'Clear Map';
+  clearMap.style.cssText = 'padding:6px 10px;border-radius:8px;border:0;background:#ef6c00;color:#fff;font-weight:700;cursor:pointer';
+  clearMap.addEventListener('click', () => onClearMap());
+
   const reset = document.createElement('button');
-  reset.textContent = 'Reset';
+  reset.textContent = 'Start Over';
   reset.style.cssText = 'padding:6px 10px;border-radius:8px;border:0;background:#c62828;color:#fff;font-weight:700;cursor:pointer';
   reset.addEventListener('click', () => onReset());
 
@@ -96,7 +103,7 @@ export function createHud(
   banner.style.cssText = 'margin-left:auto;background:#2e7d32;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
   banner.textContent = '🎉 You beat them all!';
 
-  bar.append(levelLabel, target, progWrap, toolWrap, opWrap, sel, reset, hint, notYet, levelToast, banner);
+  bar.append(levelLabel, target, progWrap, toolWrap, opWrap, sel, clearMap, reset, hint, notYet, levelToast, banner);
   parent.appendChild(bar);
 
   let lastMisses = 0;

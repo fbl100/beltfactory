@@ -19,10 +19,12 @@
 // out — 2 top-left, 3 bottom-left (10 apart), 5 and 7 across the bottom — to leave the middle
 // open for building and keep belts from turning into spaghetti.
 //
-// ops: × is available from the start (it's the point); the finale unlocks the full toolkit. Keep
-// each level's ops a superset of the previous, with 'add' always present.
+// ops: all four operators (+ − × ÷) are buildable from the start. × is still the *intended* route
+// (the ladder is a factor tree), but the full toolkit is available so she can experiment freely.
+// Invariant kept: each level's ops is a superset of the previous, with 'add' always present.
 
 import type { OpId } from './operations';
+import { ALL_OPS } from './operations';
 
 export interface GrantNode { x: number; y: number; value: bigint }
 
@@ -33,14 +35,13 @@ export interface Level {
   ops: OpId[];             // operator types the player may build on this level
 }
 
-const AM: OpId[] = ['add', 'multiply'];
 export const LEVELS: Level[] = [
-  { target: 6n,   required: 8, grantNodes: [{ x: 2, y: 2, value: 2n }, { x: 2, y: 12, value: 3n }], ops: AM }, // 2 × 3
-  { target: 12n,  required: 8, grantNodes: [], ops: AM },                                                      // 2 × 2 × 3 (reuse the 2)
-  { target: 21n,  required: 8, grantNodes: [], ops: AM },                                                      // 2 × 3 × 3 + 3 (× and +)
-  { target: 30n,  required: 8, grantNodes: [{ x: 8, y: 13, value: 5n }],  ops: AM },                           // 2 × 3 × 5 (new prime 5)
-  { target: 42n,  required: 8, grantNodes: [{ x: 13, y: 13, value: 7n }], ops: AM },                           // 2 × 3 × 7 (new prime 7)
-  { target: 210n, required: 8, grantNodes: [], ops: ['add', 'multiply', 'subtract', 'divide'] },               // 2 × 3 × 5 × 7 (finale)
+  { target: 6n,   required: 8, grantNodes: [{ x: 2, y: 2, value: 2n }, { x: 2, y: 12, value: 3n }], ops: ALL_OPS }, // 2 × 3
+  { target: 12n,  required: 8, grantNodes: [], ops: ALL_OPS },                                                      // 2 × 2 × 3 (reuse the 2)
+  { target: 21n,  required: 8, grantNodes: [], ops: ALL_OPS },                                                      // 2 × 3 × 3 + 3 (× and +)
+  { target: 30n,  required: 8, grantNodes: [{ x: 8, y: 13, value: 5n }],  ops: ALL_OPS },                           // 2 × 3 × 5 (new prime 5)
+  { target: 42n,  required: 8, grantNodes: [{ x: 13, y: 13, value: 7n }], ops: ALL_OPS },                           // 2 × 3 × 7 (new prime 7)
+  { target: 210n, required: 8, grantNodes: [], ops: ALL_OPS },                                                      // 2 × 3 × 5 × 7 (finale)
 ];
 
 // The operator types the player may build at a given (clamped) level index.

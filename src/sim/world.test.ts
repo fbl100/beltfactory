@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { CHUNK_SIZE, chunkOfCell, chunkKey, ensureChunk, newGame, resetGame } from './world';
+import { CHUNK_SIZE, chunkOfCell, chunkKey, ensureChunk, newGame, resetGame, clearBuild } from './world';
 import type { ChunkGenerator } from './world';
-import { emptyState, beltAt, cellKey } from './grid';
-import { buildingAt } from './buildings';
+import { emptyState, beltAt, splitterAt, cellKey } from './grid';
+import { addBuilding, buildingAt } from './buildings';
+import { createItem } from './items';
 
 const gen: ChunkGenerator = (_s, cx, cy) => (cx === 0 && cy === 0 ? {
   nodes: [{ x: 2, y: 2, value: 7n }],
@@ -56,5 +57,27 @@ describe('chunks', () => {
     expect(beltAt(s, 9, 9)).toBeUndefined();          // player build cleared
     expect(beltAt(s, 6, 6)).toBeTruthy();             // origin regenerated (authored belt)
     expect(buildingAt(s, 2, 2)?.type).toBe('miner');  // origin regenerated (authored miner)
+  });
+  it('clearBuild wipes the build but keeps the level, target, deposits, and chunks', () => {
+    const s = newGame(7, gen);          // origin: node (2,2), miner center (2,2)
+    s.levelIndex = 2;
+    s.delivered = 4; s.misses = 3;
+    addBuilding(s, { type: 'target', ax: 20, ay: 20, dir: 'right', target: 21n, required: 8 }); // center (21,21)
+    s.belts.set(cellKey(9, 9), { type: 'belt', dir: 'right' });
+    s.splitters.set(cellKey(10, 9), { type: 'splitter', dir: 'right', next: 0 });
+    s.items.push(createItem(1, 5n, 9, 9));
+    const chunksBefore = s.loadedChunks.size;
+
+    clearBuild(s);
+
+    expect(s.levelIndex).toBe(2);                         // level kept (not a full reset)
+    expect(buildingAt(s, 21, 21)?.type).toBe('target');   // target hub kept + occupancy intact
+    expect(buildingAt(s, 2, 2)).toBeUndefined();          // miner cleared
+    expect(beltAt(s, 9, 9)).toBeUndefined();              // belts cleared
+    expect(splitterAt(s, 10, 9)).toBeUndefined();         // splitters cleared
+    expect(s.items.length).toBe(0);                       // in-flight items cleared
+    expect(s.nodes.get(cellKey(2, 2))?.value).toBe(7n);   // deposit kept
+    expect(s.delivered).toBe(0); expect(s.misses).toBe(0); // progress reset (its factory is gone)
+    expect(s.loadedChunks.size).toBe(chunksBefore);       // chunks/map kept
   });
 });

@@ -2,7 +2,7 @@ import type { GameState, Direction } from './grid';
 import { cellKey, emptyState } from './grid';
 import type { ResourceNode } from './entities';
 import type { Building } from './buildings';
-import { isBlocked, addBuilding } from './buildings';
+import { isBlocked, addBuilding, rebuildOccupancy } from './buildings';
 import type { OpId } from '../content/operations';
 import { MINER_EVERY_TICKS, OPERATOR_EVERY_TICKS } from '../content/config';
 
@@ -75,6 +75,22 @@ export function newGame(seed: number, gen: ChunkGenerator): GameState {
   const s = emptyState(seed);
   ensureChunk(s, gen, 0, 0); // origin chunk holds the starting puzzle
   return s;
+}
+
+// Clear the player's BUILD on the current level (belts/splitters/tunnels + miners/operators +
+// in-flight items) for a fresh attempt at the SAME puzzle. Keeps the level, its target hub (which
+// is un-erasable and defines the goal), the revealed deposits, and the loaded chunks. The progress
+// bar resets since the factory that filled it is gone. Contrast resetGame, a full "start over".
+export function clearBuild(state: GameState): void {
+  state.belts.clear();
+  state.splitters.clear();
+  state.tunnels.clear();
+  for (const [key, b] of state.buildings) if (b.type !== 'target') state.buildings.delete(key);
+  rebuildOccupancy(state); // drop the cleared footprints from the occupancy index
+  state.items = [];
+  state.nextItemId = 1;
+  state.delivered = 0;
+  state.misses = 0;
 }
 
 // Reset an existing game IN PLACE (so all live references keep working): clear the
