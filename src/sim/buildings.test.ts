@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { emptyState, cellKey } from './grid';
 import type { Direction } from './grid';
 import {
-  centerOf, footprintOf, coversCell, outCell, inPortSlot, portsOf,
+  centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf,
   addBuilding, removeBuildingAt, buildingAt, isBlocked, rebuildOccupancy,
 } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
@@ -34,12 +34,19 @@ describe('building geometry', () => {
     expect(inPortSlot(b, 1, 0)).toBe(-1);
     expect(inPortSlot(b, 3, 1)).toBe(-1);
   });
-  it('operator: in-ports on the two sides, not the front/back', () => {
-    const b = op(0, 0, 'right'); // center (1,1); LEFT_OF=up edge (1,0), RIGHT_OF=down edge (1,2)
-    expect(inPortSlot(b, 1, 0)).toBe(0);
-    expect(inPortSlot(b, 1, 2)).toBe(1);
-    expect(inPortSlot(b, 2, 1)).toBe(-1); // front out-edge
-    expect(inPortSlot(b, 0, 1)).toBe(-1); // back edge
+  it('miner emits from all 3 open sides (9 cells), skipping the back', () => {
+    const outs = minerOutputs(miner(0, 0, 'right')); // back = left (x=-1) is skipped
+    expect(outs.length).toBe(9);
+    expect(outs.filter((o) => o.dir === 'right').map((o) => `${o.x},${o.y}`).sort()).toEqual(['3,0', '3,1', '3,2']);
+    expect(outs.some((o) => o.x === -1)).toBe(false); // no output on the back (left) side
+  });
+  it('operator: inputs on the 3 non-front sides, output on the front', () => {
+    const b = op(0, 0, 'right'); // center (1,1); front (output) edge = x=2 column
+    expect(inPortSlot(b, 1, 0)).toBe(0);  // top side
+    expect(inPortSlot(b, 1, 2)).toBe(0);  // bottom side
+    expect(inPortSlot(b, 0, 1)).toBe(0);  // back side (now an input)
+    expect(inPortSlot(b, 2, 1)).toBe(-1); // front out-edge (output, not input)
+    expect(inPortSlot(b, 2, 0)).toBe(-1); // front corner
     expect(outCell(b)).toEqual({ x: 3, y: 1 });
   });
   it('target accepts on all four edges but not corners', () => {
@@ -50,10 +57,9 @@ describe('building geometry', () => {
     expect(inPortSlot(b, 1, 2)).toBe(0);
     expect(inPortSlot(b, 0, 0)).toBe(-1);
   });
-  it('portsOf: miner 1 out; operator 1 out + 2 in; target 4 in', () => {
-    expect(portsOf(miner(0, 0, 'right')).filter((p) => p.role === 'out').length).toBe(1);
+  it('portsOf: operator 1 out + 3 in; target 4 in', () => {
     const ports = portsOf(op(0, 0, 'right'));
-    expect(ports.filter((p) => p.role === 'in').length).toBe(2);
+    expect(ports.filter((p) => p.role === 'in').length).toBe(3);
     expect(ports.filter((p) => p.role === 'out').length).toBe(1);
     expect(portsOf(target(0, 0, 'right')).filter((p) => p.role === 'in').length).toBe(4);
   });

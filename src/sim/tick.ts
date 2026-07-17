@@ -3,7 +3,7 @@ import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt } from './grid';
 import type { Item } from './items';
 import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
-import { outCell, inPortSlot, buildingAt } from './buildings';
+import { outCell, minerOutputs, inPortSlot, buildingAt } from './buildings';
 import { createItem } from './items';
 import { applyOp } from '../content/operations';
 
@@ -27,16 +27,16 @@ function canEmitOnto(state: GameState, x: number, y: number): boolean {
   return (beltAt(state, x, y) !== undefined || splitterAt(state, x, y) !== undefined) && !occupied(state, x, y, null);
 }
 
-// Miners emit their (cached) node value onto their output cell every N ticks.
+// Miners are wide sources: every N ticks they emit their (cached) node value onto
+// each connected output cell across their 3 open sides.
 function mine(state: GameState): void {
   for (const b of state.buildings.values()) {
     if (b.type !== 'miner') continue;
     b.sinceEmit++;
     if (b.sinceEmit < b.everyTicks) continue;
-    const { x, y } = outCell(b);
-    if (canEmitOnto(state, x, y)) {
-      state.items.push(createItem(state.nextItemId++, b.value, x, y));
-      b.sinceEmit = 0;
+    b.sinceEmit = 0;
+    for (const o of minerOutputs(b)) {
+      if (canEmitOnto(state, o.x, o.y)) state.items.push(createItem(state.nextItemId++, b.value, o.x, o.y));
     }
   }
 }

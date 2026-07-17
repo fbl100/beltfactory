@@ -57,6 +57,18 @@ describe('tick: miner', () => {
     step(s); // sinceEmit 2: emit
     expect(itemAt(s, 3, 1)?.value).toBe(5n);
   });
+  it('emits onto every connected output belt in one cycle (wide output)', () => {
+    const s = emptyState(1);
+    const m: MinerBuilding = { type: 'miner', ax: 0, ay: 0, dir: 'right', value: 7n, everyTicks: 2, sinceEmit: 0 };
+    addBuilding(s, m); // front (right) outputs: (3,0),(3,1),(3,2)
+    setBelt(s, 3, 0, belt('right'));
+    setBelt(s, 3, 1, belt('right'));
+    setBelt(s, 3, 2, belt('right'));
+    step(s); step(s); // reach the emit cycle
+    expect(itemAt(s, 3, 0)?.value).toBe(7n);
+    expect(itemAt(s, 3, 1)?.value).toBe(7n);
+    expect(itemAt(s, 3, 2)?.value).toBe(7n);
+  });
 });
 
 describe('tick: operator', () => {
@@ -72,6 +84,20 @@ describe('tick: operator', () => {
     step(s); // both items absorbed into the operator's inputs
     expect(s.items.length).toBe(0);
     step(s); // produce() sees 2 inputs -> emits 12 on the out belt
+    expect(itemAt(s, 4, 2)?.value).toBe(12n);
+  });
+  it('accepts inputs from the back side too (3 non-front sides)', () => {
+    const s = emptyState(1);
+    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 };
+    addBuilding(s, o); // center (2,2); out (4,2); back-center in (1,2); top-center in (2,1)
+    setBelt(s, 0, 2, belt('right')); // feeds the back input (1,2)
+    setBelt(s, 2, 0, belt('down'));  // feeds the top input (2,1)
+    setBelt(s, 4, 2, belt('right')); // out
+    s.items.push(createItem(1, 7n, 0, 2));
+    s.items.push(createItem(2, 5n, 2, 0));
+    step(s);
+    expect(s.items.length).toBe(0);
+    step(s);
     expect(itemAt(s, 4, 2)?.value).toBe(12n);
   });
 });
@@ -131,13 +157,13 @@ describe('tick: target / win', () => {
     expect(s.status).toBe('playing');
     expect(s.misses).toBe(1);
   });
-  it('an item stepping onto a non-port footprint cell stops (no crash, no consume)', () => {
+  it('an item stepping onto the front/output edge (not an input) stops (no crash, no consume)', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 }); // center (2,2)
-    setBelt(s, 0, 1, belt('right')); // (0,1) -> corner (1,1), not an in-port
-    s.items.push(createItem(1, 3n, 0, 1));
+    addBuilding(s, { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 }); // center (2,2), front edge x=3
+    setBelt(s, 4, 1, belt('left')); // (4,1) -> front-edge (3,1): the output side, not an input
+    s.items.push(createItem(1, 3n, 4, 1));
     step(s);
-    expect(itemAt(s, 0, 1)?.id).toBe(1); // stayed put
+    expect(itemAt(s, 4, 1)?.id).toBe(1); // stayed put
     expect(s.items.length).toBe(1);
   });
 });

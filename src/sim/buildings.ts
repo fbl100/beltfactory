@@ -33,9 +33,26 @@ export function coversCell(b: Building, x: number, y: number): boolean {
 }
 
 // The external belt cell just beyond the front (output) edge: where emitted items land.
+// Used by operators (single front output).
 export function outCell(b: Building): { x: number; y: number } {
   const c = centerOf(b), d = DELTA[b.dir];
   return { x: c.x + 2 * d.dx, y: c.y + 2 * d.dy };
+}
+
+// A miner is a wide source: it emits from every edge cell on its three open
+// sides (front + left + right of the facing; the back stays clear) — 3 per side,
+// 9 output cells — each pointing outward. Rotating the miner picks the clear back.
+export function minerOutputs(b: Building): { x: number; y: number; dir: Direction }[] {
+  const cx = b.ax + 1, cy = b.ay + 1;
+  const cells: { x: number; y: number; dir: Direction }[] = [];
+  for (const side of [b.dir, LEFT_OF[b.dir], RIGHT_OF[b.dir]]) {
+    const d = DELTA[side], p = DELTA[RIGHT_OF[side]]; // p = along the edge (perpendicular to side)
+    const bx = cx + 2 * d.dx, by = cy + 2 * d.dy;     // edge-center, one cell beyond the footprint
+    cells.push({ x: bx, y: by, dir: side });
+    cells.push({ x: bx + p.dx, y: by + p.dy, dir: side });
+    cells.push({ x: bx - p.dx, y: by - p.dy, dir: side });
+  }
+  return cells;
 }
 
 export interface Port { role: 'in' | 'out'; slot: number; side: Direction; dir: Direction }
@@ -45,11 +62,12 @@ export interface Port { role: 'in' | 'out'; slot: number; side: Direction; dir: 
 export function portsOf(b: Building): Port[] {
   if (b.type === 'miner') return [{ role: 'out', slot: 0, side: b.dir, dir: b.dir }];
   if (b.type === 'operator') {
-    const l = LEFT_OF[b.dir], r = RIGHT_OF[b.dir];
+    const l = LEFT_OF[b.dir], r = RIGHT_OF[b.dir], back = OPPOSITE[b.dir];
     return [
       { role: 'out', slot: 0, side: b.dir, dir: b.dir },
-      { role: 'in', slot: 0, side: l, dir: OPPOSITE[l] },
-      { role: 'in', slot: 1, side: r, dir: OPPOSITE[r] },
+      { role: 'in', slot: 0, side: back, dir: OPPOSITE[back] },
+      { role: 'in', slot: 1, side: l, dir: OPPOSITE[l] },
+      { role: 'in', slot: 2, side: r, dir: OPPOSITE[r] },
     ];
   }
   return DIRECTIONS.map((s) => ({ role: 'in' as const, slot: 0, side: s, dir: OPPOSITE[s] }));
@@ -59,13 +77,14 @@ export function portsOf(b: Building): Port[] {
 // slot, or -1. No allocation. Miner has no inputs; front out-edge/back/corners/center are -1.
 export function inPortSlot(b: Building, x: number, y: number): number {
   if (b.type === 'miner') return -1;
-  const cx = b.ax + 1, cy = b.ay + 1;
   if (b.type === 'operator') {
-    const l = DELTA[LEFT_OF[b.dir]], r = DELTA[RIGHT_OF[b.dir]];
-    if (x === cx + l.dx && y === cy + l.dy) return 0;
-    if (x === cx + r.dx && y === cy + r.dy) return 1;
-    return -1;
+    // Inputs on the 3 non-front sides: a footprint cell is an input unless it's on
+    // the front (output) edge — i.e. unless the cell ahead of it (in dir) is outside.
+    const fd = DELTA[b.dir];
+    return coversCell(b, x + fd.dx, y + fd.dy) ? 0 : -1;
   }
+  // target: any of the four edge-center cells
+  const cx = b.ax + 1, cy = b.ay + 1;
   for (const s of DIRECTIONS) {
     const d = DELTA[s];
     if (x === cx + d.dx && y === cy + d.dy) return 0;

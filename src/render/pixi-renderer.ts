@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { Renderer, Theme, Camera, Preview } from './renderer';
 import type { GameState, Direction } from '../sim/grid';
 import { parseKey, DELTA, DIRECTIONS, OPPOSITE } from '../sim/grid';
-import { buildingAt, portsOf, outCell, FOOTPRINT } from '../sim/buildings';
+import { buildingAt, portsOf, outCell, minerOutputs, FOOTPRINT } from '../sim/buildings';
 import { CHUNK_SIZE } from '../sim/world';
 import { OPERATIONS } from '../content/operations';
 import { formatValue, fitSize } from './format';
@@ -142,12 +142,20 @@ export class PixiRenderer implements Renderer {
       g.roundRect(px, py, span, span, t.cornerRadius).fill(body);
 
       const cxWorld = ax + 1, cyWorld = ay + 1;
-      const hasOut = b.type === 'target' || this.carrierPresent(state, outCell(b));
-      for (const port of portsOf(b)) {
-        const d = DELTA[port.side];
-        const ex = this.sx(cxWorld + d.dx) + cs / 2, ey = this.sy(cyWorld + d.dy) + cs / 2;
-        if (port.role === 'out') this.arrow(g, ex, ey, cs * 0.28, port.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
-        else this.arrow(g, ex, ey, cs * 0.18, port.dir, t.arrow, 0.55);
+      if (b.type === 'miner') {
+        // wide output: an arrow at each connected output cell, a faint pip at the rest
+        for (const o of minerOutputs(b)) {
+          if (this.carrierPresent(state, o)) this.arrow(g, this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.2, o.dir, t.arrow, 1);
+          else g.circle(this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.06).fill({ color: t.arrow, alpha: 0.3 });
+        }
+      } else {
+        const hasOut = b.type === 'target' || this.carrierPresent(state, outCell(b));
+        for (const port of portsOf(b)) {
+          const d = DELTA[port.side];
+          const ex = this.sx(cxWorld + d.dx) + cs / 2, ey = this.sy(cyWorld + d.dy) + cs / 2;
+          if (port.role === 'out') this.arrow(g, ex, ey, cs * 0.28, port.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
+          else this.arrow(g, ex, ey, cs * 0.18, port.dir, t.arrow, 0.55);
+        }
       }
 
       const text = b.type === 'miner' ? formatValue(b.value)
