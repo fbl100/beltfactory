@@ -10,6 +10,12 @@
 //
 // grantNodes are CUMULATIVE: each level's deposits are added to the world when that level
 // begins; every earlier deposit stays. LEVELS[0].grantNodes are the starting deposits.
+//
+// ops lists the operator types the player may build on that level — the educational ramp:
+// addition first, then − / × / ÷ unlock as the ladder climbs (Phase 2/3/4 in CLAUDE.md). Keep
+// each level's ops a superset of the previous (so unlocks never disappear); 'add' is always in.
+
+import type { OpId } from './operations';
 
 export interface GrantNode { x: number; y: number; value: bigint }
 
@@ -17,18 +23,24 @@ export interface Level {
   target: bigint;          // the number to produce this level
   required: number;        // correct deliveries to complete the level
   grantNodes: GrantNode[]; // deposits that appear when this level begins
+  ops: OpId[];             // operator types the player may build on this level
 }
 
 // Deposits sit below the origin puzzle's build corridor (start nodes at y=2/y=8, hub at
 // y=4..6), spaced so each 3x3 miner footprint is disjoint. If a deposit's spot is later
 // buried under the player's factory, sim/progression relocates it to clear ground.
 export const LEVELS: Level[] = [
-  { target: 12n,  required: 10, grantNodes: [{ x: 2, y: 2, value: 7n }, { x: 2, y: 8, value: 5n }] }, // 7 + 5
-  { target: 20n,  required: 10, grantNodes: [{ x: 6, y: 12, value: 8n }] },   // 12 + 8   (gentle)
-  { target: 30n,  required: 10, grantNodes: [{ x: 10, y: 12, value: 10n }] }, // 20 + 10  (gentle)
-  { target: 50n,  required: 10, grantNodes: [{ x: 2, y: 12, value: 25n }] },  // 25 + 25  (bold: double it)
-  { target: 100n, required: 10, grantNodes: [{ x: 14, y: 12, value: 50n }] }, // 50 + 50  (bold finale)
+  { target: 12n,  required: 10, grantNodes: [{ x: 2, y: 2, value: 7n }, { x: 2, y: 8, value: 5n }], ops: ['add'] }, // 7 + 5
+  { target: 20n,  required: 10, grantNodes: [{ x: 6, y: 12, value: 8n }],  ops: ['add'] },                          // 12 + 8   (gentle)
+  { target: 30n,  required: 10, grantNodes: [{ x: 10, y: 12, value: 10n }], ops: ['add', 'subtract'] },            // 20 + 10  (gentle; − unlocks)
+  { target: 50n,  required: 10, grantNodes: [{ x: 2, y: 12, value: 25n }],  ops: ['add', 'subtract', 'multiply'] }, // 25 + 25 or 5 × 10 (× unlocks)
+  { target: 100n, required: 10, grantNodes: [{ x: 14, y: 12, value: 50n }], ops: ['add', 'subtract', 'multiply', 'divide'] }, // 50 + 50 (full toolkit)
 ];
+
+// The operator types the player may build at a given (clamped) level index.
+export function opsForLevel(index: number): OpId[] {
+  return LEVELS[clampLevelIndex(index)].ops;
+}
 
 // Clamp an arbitrary (possibly out-of-range / migrated) index into the valid range.
 export function clampLevelIndex(index: number): number {

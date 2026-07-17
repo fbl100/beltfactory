@@ -12,7 +12,8 @@ export type BuildingType = 'miner' | 'operator' | 'target';
 interface Base { ax: number; ay: number; dir: Direction }
 export interface MinerBuilding extends Base { type: 'miner'; value: bigint; everyTicks: number; sinceEmit: number }
 // everyTicks/sinceProduce throttle an operator's output rate (its throughput cap).
-export interface OperatorBuilding extends Base { type: 'operator'; op: OpId; inputs: bigint[]; everyTicks: number; sinceProduce: number } // slot0=LEFT_OF, slot1=RIGHT_OF
+// Two inputs from any of the 3 non-front sides; ops are order-independent (see content/operations), so arrival order doesn't matter.
+export interface OperatorBuilding extends Base { type: 'operator'; op: OpId; inputs: bigint[]; everyTicks: number; sinceProduce: number }
 export interface TargetBuilding extends Base { type: 'target'; target: bigint; required: number } // dir vestigial (accepts all 4 sides)
 export type Building = MinerBuilding | OperatorBuilding | TargetBuilding;
 

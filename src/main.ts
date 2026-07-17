@@ -3,6 +3,8 @@ import { DEFAULT_THEME } from './render/themes';
 import type { Theme, Camera } from './render/renderer';
 import { newGame, resetGame, ensureChunksInRange } from './sim/world';
 import { mvpGenerator } from './content/worldgen';
+import { opsForLevel } from './content/levels';
+import type { OpId } from './content/operations';
 import { TUNNEL_REACH } from './content/config';
 import { serialize, deserialize } from './sim/save';
 import { step, TICKS_PER_SECOND } from './sim/tick';
@@ -85,6 +87,12 @@ async function boot() {
     return renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
   };
 
+  // The operator type to build: the HUD's selected op, gated to what this level has unlocked.
+  const currentOp = (): OpId => {
+    const op = hud.getOp();
+    return opsForLevel(state.levelIndex).includes(op) ? op : 'add';
+  };
+
   // Belts drag-to-paint; buildings are single centered clicks; right-drag erases.
   // Belts support press-and-drag AND click-start / click-end: after one click, a second
   // click paints an oriented line to it. Other tools are single clicks; right-drag erases.
@@ -101,7 +109,7 @@ async function boot() {
       paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir); // immediate single-belt feedback
     }
     else if (tool === 'miner') { placeMiner(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
-    else if (tool === 'operator') { placeOperator(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
+    else if (tool === 'operator') { placeOperator(state, c.x, c.y, placeDir, currentOp()); paintMode = null; lastCell = null; }
     else if (tool === 'splitter') { placeSplitter(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
     else { placeTunnelTool(c); paintMode = null; lastCell = null; } // tunnel
     dirty = true; e.preventDefault();

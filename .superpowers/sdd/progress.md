@@ -54,7 +54,17 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
     workflow (5 confirmed findings all fixed: save-snap boundary, stale-value flash, dead code,
     redundant clamp). Browser-verified: build→advance→toast→new deposit→resume, no "Not yet" spam.
 
-Status: 101 tests, tsc clean, vite build, browser-verified (advance-through-levels + resume).
+- Operators − / × / ÷ (editable data): `src/content/operations.ts` now has add/subtract/
+  multiply/divide, all ORDER-INDEPENDENT (− = |a−b|, ÷ = bigger/smaller whole part, ÷0→0) so the
+  operator machine needs no operand ports and a kid never sees negatives/fractions. `Level.ops`
+  gates which the player may build (cumulative: add → +− → +× → +÷); `opsForLevel(i)`. HUD gains a
+  level-gated op-type selector (getOp); main.ts places `currentOp()`. Renderer already drew the
+  symbol; save already round-trips `op` (no version bump). Reviewed via an adversarial workflow
+  (0 confirmed findings). Browser-verified: only + at L1, all four at L5, placing a × operator
+  renders/persists as multiply.
 
-NEXT: subtraction / × / ÷ as editable content data (wire `Level.ops`); procedural deposits
-beyond the origin chunk; drag-to-pan; more levels / retune the ladder for her actual pace.
+Status: 108 tests, tsc clean, vite build, browser-verified (advance-through-levels + resume; op
+gating + × placement).
+
+NEXT: procedural deposits beyond the origin chunk; drag-to-pan; retune/extend the ladder (and
+consider targets that *require* − / × / ÷, since the current ladder is addition-reachable).

@@ -101,6 +101,18 @@ describe('tick: operator', () => {
     step(s);
     expect(itemAt(s, 4, 2)?.value).toBe(12n);
   });
+  it('applies the operator op (× here) to its two inputs', () => {
+    const s = emptyState(1);
+    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'multiply', inputs: [], everyTicks: 1, sinceProduce: 0 };
+    addBuilding(s, o);
+    setBelt(s, 2, 0, belt('down'));
+    setBelt(s, 2, 4, belt('up'));
+    setBelt(s, 4, 2, belt('right'));
+    s.items.push(createItem(1, 5n, 2, 0));
+    s.items.push(createItem(2, 10n, 2, 4));
+    step(s); step(s);
+    expect(itemAt(s, 4, 2)?.value).toBe(50n); // 5 × 10
+  });
 });
 
 describe('tick: splitter', () => {

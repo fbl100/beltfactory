@@ -2,7 +2,9 @@ import type { Theme } from '../render/renderer';
 import { THEMES } from '../render/themes';
 import { formatValue } from '../render/format';
 import type { GameState, Direction } from '../sim/grid';
-import { LEVELS, clampLevelIndex } from '../content/levels';
+import { LEVELS, clampLevelIndex, opsForLevel } from '../content/levels';
+import { ALL_OPS, OPERATIONS } from '../content/operations';
+import type { OpId } from '../content/operations';
 
 export type Tool = 'belt' | 'miner' | 'operator' | 'splitter' | 'tunnel';
 
@@ -52,6 +54,21 @@ export function createHud(
   const paintTools = () => tools.forEach((tl) => { toolBtns[tl.id].style.borderColor = tl.id === activeTool ? '#1e88e5' : 'transparent'; });
   paintTools();
 
+  // --- operator-type selector (which op the "+ Op" tool builds; visibility gated by level) ---
+  let activeOp: OpId = 'add';
+  const opWrap = document.createElement('div'); opWrap.style.cssText = 'display:flex;gap:4px';
+  const opBtns: Record<string, HTMLButtonElement> = {};
+  for (const op of ALL_OPS) {
+    const b = document.createElement('button');
+    b.textContent = OPERATIONS[op].symbol; b.title = OPERATIONS[op].label;
+    b.style.cssText = 'padding:6px 10px;border-radius:8px;border:2px solid transparent;cursor:pointer;font-weight:800;min-width:30px';
+    // Picking an op also selects the operator tool, so one click means "build this operator".
+    b.addEventListener('click', () => { activeOp = op; activeTool = 'operator'; onTool('operator'); paintTools(); paintOps(); });
+    opBtns[op] = b; opWrap.appendChild(b);
+  }
+  const paintOps = () => { for (const op of ALL_OPS) opBtns[op].style.borderColor = op === activeOp ? '#1e88e5' : 'transparent'; };
+  paintOps();
+
   // --- direction / rotation ---
   const dirs: Direction[] = ['up', 'down', 'left', 'right'];
   const glyph: Record<Direction, string> = { up: '▲', down: '▼', left: '◀', right: '▶' };
@@ -93,7 +110,7 @@ export function createHud(
   banner.style.cssText = 'margin-left:auto;background:#2e7d32;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
   banner.textContent = '🎉 You beat them all!';
 
-  bar.append(levelLabel, target, progWrap, toolWrap, dirWrap, sel, reset, hint, notYet, levelToast, banner);
+  bar.append(levelLabel, target, progWrap, toolWrap, opWrap, dirWrap, sel, reset, hint, notYet, levelToast, banner);
   parent.appendChild(bar);
 
   let lastMisses = 0;
@@ -109,6 +126,11 @@ export function createHud(
       for (const b of state.buildings.values()) if (b.type === 'target') { goal = formatValue(b.target); required = b.required; break; }
       target.textContent = `Make ${goal}`;
       levelLabel.textContent = `Level ${idx + 1}/${LEVELS.length}`;
+      // show only the operator types unlocked at this level; fall back if the active one locked
+      const availOps = opsForLevel(idx);
+      for (const op of ALL_OPS) opBtns[op].style.display = availOps.includes(op) ? 'block' : 'none';
+      if (!availOps.includes(activeOp)) activeOp = 'add';
+      paintOps();
       const pct = required > 0 ? Math.min(100, Math.round((100 * state.delivered) / required)) : 0;
       progFill.style.width = `${pct}%`;
       progText.textContent = required > 0 ? `${state.delivered}/${required}` : `${state.delivered}`;
@@ -132,5 +154,6 @@ export function createHud(
     },
     setDir(d: Direction) { activeDir = d; paintDirs(); },
     setTool(t: Tool) { activeTool = t; paintTools(); },
+    getOp(): OpId { return activeOp; },
   };
 }

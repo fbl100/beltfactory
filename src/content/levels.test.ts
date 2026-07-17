@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { LEVELS, clampLevelIndex } from './levels';
+import { LEVELS, clampLevelIndex, opsForLevel } from './levels';
+import { ALL_OPS } from './operations';
 
 // Every node value available at (and before) a given level index (deposits are cumulative).
 function cumulativeNodeValues(index: number): bigint[] {
@@ -59,6 +60,23 @@ describe('content/levels', () => {
         expect(onHub(n.x, n.y)).toBe(false);
         expect(n.value).toBeGreaterThan(0n);
       }
+  });
+
+  it('every level unlocks a valid, cumulative op set that always includes addition', () => {
+    for (let i = 0; i < LEVELS.length; i++) {
+      const ops = LEVELS[i].ops;
+      expect(ops.length).toBeGreaterThan(0);
+      expect(ops).toContain('add');                       // addition is always available
+      for (const op of ops) expect(ALL_OPS).toContain(op); // no unknown op ids
+      if (i > 0) for (const prev of LEVELS[i - 1].ops) expect(ops).toContain(prev); // never lose an unlock
+    }
+    // final level exposes the whole toolkit
+    expect([...LEVELS[LEVELS.length - 1].ops].sort()).toEqual([...ALL_OPS].sort());
+  });
+
+  it('opsForLevel clamps out-of-range indices', () => {
+    expect(opsForLevel(-1)).toEqual(LEVELS[0].ops);
+    expect(opsForLevel(999)).toEqual(LEVELS[LEVELS.length - 1].ops);
   });
 
   it('clampLevelIndex keeps the index in range', () => {
