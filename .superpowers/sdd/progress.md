@@ -71,16 +71,17 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
   route; stage as per-op "islands"; addition stays possible so never-stuck holds).
 
 - Prime Foundry (shipped): retuned LEVELS to a prime-factorization ladder — deposits are primes,
-  targets are composites built by multiplying them (6=2×3, 15=3×5, 35=5×7, 45=3×3×5, 105=3×5×7,
-  210=2×3×5×7; 6 levels, +/× from L1). Makes × essential; addition still possible (never stuck).
-  New tests: deposits are prime, each target is a product of available primes, still
-  addition-reachable. e2e updated (2×3→6 via a × operator). Pure data + test change; no engine
-  edits. Browser-verified: boot Make 6 with primes 2/3 and +/× offered → 2×3 factory advances to
-  Make 15 with new prime 5, toast, no misses.
+  targets are composites built by multiplying them; +/× from L1, × essential, addition still
+  possible (never stuck). Playtest-retuned per kid feedback (she liked it): stays on {2,3} to build
+  fluency — 6=2×3 → 12=2×2×3 (reuse) → 21=2×3×3+3 (× and +) — THEN introduces one prime at a time
+  — 30=2×3×5 → 42=2×3×7 → 210=2×3×5×7 (finale). Deposits spread out (2 top-left, 3 bottom-left ~10
+  apart; 5,7 across the bottom) to fix spaghetti. Tests: deposits prime, each target buildable with
+  the level ops in a few machines (BFS — accepts ×+remainder like 21), still addition-reachable.
+  Pure data + test change; no engine edits. Browser-verified: boot Make 6 with 2/3 spread out and
+  +/× offered → 2×3 factory advances to Make 12 with no new deposit (stays {2,3}), toast, no misses.
 
-Status: 110 tests, tsc clean, vite build, browser-verified (Prime Foundry advance; op gating;
-pan/zoom; resume).
+Status: 111 tests, tsc clean, vite build, browser-verified (Prime Foundry {2,3} advance + spacing;
+op gating; pan/zoom; resume).
 
-NEXT: playtest Prime Foundry (does × click for her? retune targets/counts); then Era Islands
-(per-operator islands + procedural deposits beyond origin — old islands persist), a division
-Breaker Yard island, and optional Number Golf pars (see docs/design/2026-07-16-*).
+NEXT: Era Islands (per-operator islands + procedural deposits beyond origin — old islands persist),
+a division Breaker Yard island, and optional Number Golf pars (see docs/design/2026-07-16-*).

@@ -7,6 +7,8 @@ import { canPlaceMiner } from '../input/place';
 import { LEVELS } from '../content/levels';
 
 const LAST = LEVELS.length - 1;
+// First level after 0 that grants a new deposit (not every level does).
+const GRANT_LEVEL = LEVELS.findIndex((l, i) => i > 0 && l.grantNodes.length > 0);
 
 // A minimal world: a single target hub (like worldgen authors) at the given level.
 function withHub(levelIndex: number, delivered = 0, status: 'playing' | 'won' = 'playing'): GameState {
@@ -20,7 +22,7 @@ function withHub(levelIndex: number, delivered = 0, status: 'playing' | 'won' = 
 }
 
 describe('progression: advanceLevel', () => {
-  it('advances a non-final level: bumps the goal, resets the bar, grants the next deposit', () => {
+  it('advances a non-final level: bumps the goal and resets the bar', () => {
     const s = withHub(0, LEVELS[0].required);
     const hub = targetHub(s)!;
     advanceLevel(s, hub);
@@ -29,7 +31,13 @@ describe('progression: advanceLevel', () => {
     expect(s.delivered).toBe(0);
     expect((hub as any).target).toBe(LEVELS[1].target);
     expect((hub as any).required).toBe(LEVELS[1].required);
-    const granted = LEVELS[1].grantNodes[0].value;
+  });
+
+  it('grants the new deposit on a level that introduces one', () => {
+    const s = withHub(GRANT_LEVEL - 1, LEVELS[GRANT_LEVEL - 1].required);
+    advanceLevel(s, targetHub(s)!);
+    expect(s.levelIndex).toBe(GRANT_LEVEL);
+    const granted = LEVELS[GRANT_LEVEL].grantNodes[0].value;
     expect([...s.nodes.values()].some((n) => n.value === granted)).toBe(true);
   });
 
@@ -47,8 +55,8 @@ describe('progression: advanceLevel', () => {
   });
 
   it('relocates a granted deposit when its authored spot is buried under the factory', () => {
-    const s = withHub(0, LEVELS[0].required);
-    const spot = LEVELS[1].grantNodes[0]; // authored cell for the level-1 deposit
+    const s = withHub(GRANT_LEVEL - 1, LEVELS[GRANT_LEVEL - 1].required);
+    const spot = LEVELS[GRANT_LEVEL].grantNodes[0]; // authored cell for the next granted deposit
     setBelt(s, spot.x, spot.y, { type: 'belt', dir: 'right' }); // bury the miner spot
     advanceLevel(s, targetHub(s)!);
     const node = [...s.nodes.values()].find((n) => n.value === spot.value);

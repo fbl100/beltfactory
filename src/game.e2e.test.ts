@@ -19,14 +19,14 @@ import { serialize, deserialize } from './sim/save';
 // This factory makes 6 (=2×3): it can complete level 0 and advance once to level 1.
 function build(s: GameState): void {
   placeMiner(s, 2, 2, 'right');                 // on the 2 node -> out (4,2)
-  placeMiner(s, 2, 8, 'right');                 // on the 3 node -> out (4,8)
+  placeMiner(s, 2, 12, 'right');                // on the 3 node -> out (4,12)
   placeOperator(s, 8, 5, 'right', 'multiply');  // center (8,5); ins (8,4)/(8,6); out (10,5)
   // 2-line: (4,2) across then down into the operator top-in (8,4)
   paintBeltLine(s, 4, 2, 8, 2, 'right');
   paintBeltLine(s, 8, 2, 8, 3, 'down');
-  // 3-line: (4,8) across then up into the operator bottom-in (8,6)
-  paintBeltLine(s, 4, 8, 8, 8, 'right');
-  paintBeltLine(s, 8, 8, 8, 7, 'up');
+  // 3-line: (4,12) across then up into the operator bottom-in (8,6)
+  paintBeltLine(s, 4, 12, 8, 12, 'right');
+  paintBeltLine(s, 8, 12, 8, 7, 'up');
   // product: operator out (10,5) -> target left-in (12,5)
   paintBeltLine(s, 10, 5, 11, 5, 'right');
 }
@@ -43,7 +43,7 @@ describe('e2e: beltmatic puzzle loop', () => {
   it('authors level-0 deposits + a target; the machines are player-placed', () => {
     const s = newGame(1, mvpGenerator);
     expect(nodeAt(s, 2, 2)?.value).toBe(2n);
-    expect(nodeAt(s, 2, 8)?.value).toBe(3n);
+    expect(nodeAt(s, 2, 12)?.value).toBe(3n);
     expect(buildingAt(s, 2, 2)).toBeUndefined(); // no miner until the player places one
     expect(buildingAt(s, 8, 5)).toBeUndefined(); // no operator yet
     const t = buildingAt(s, 13, 5);
@@ -65,14 +65,11 @@ describe('e2e: beltmatic puzzle loop', () => {
     expect(s.levelIndex).toBe(1);
     expect(s.status).toBe('playing');   // advanced, not won (this is not the final level)
     expect(s.delivered).toBe(0);        // bar reset for the new level
-    expect(s.misses).toBe(0);           // every level-0 delivery was a correct 12
+    expect(s.misses).toBe(0);           // every level-0 delivery was a correct 6
 
     const hub = buildingAt(s, 13, 5) as any;
-    expect(hub.target).toBe(LEVELS[1].target);     // goal advanced (12 -> 20)
+    expect(hub.target).toBe(LEVELS[1].target);     // goal advanced (6 -> 12)
     expect(hub.required).toBe(LEVELS[1].required);
-    // a new number deposit was granted for level 1
-    const values = [...s.nodes.values()].map((n) => n.value);
-    expect(values).toContain(LEVELS[1].grantNodes[0].value);
   });
 
   it('resumes from a mid-game save and still advances', () => {
