@@ -43,13 +43,12 @@ export function outCell(b: Building): { x: number; y: number } {
   return { x: c.x + 2 * d.dx, y: c.y + 2 * d.dy };
 }
 
-// A miner is a wide source: it emits from every edge cell on its three open
-// sides (front + left + right of the facing; the back stays clear) — 3 per side,
-// 9 output cells — each pointing outward. Rotating the miner picks the clear back.
+// A miner is a wide source: it emits from every edge cell on ALL FOUR sides — 3 cells per side,
+// 12 output cells — each pointing outward. (dir is vestigial for miners; every side emits.)
 export function minerOutputs(b: Building): { x: number; y: number; dir: Direction }[] {
   const cx = b.ax + 1, cy = b.ay + 1;
   const cells: { x: number; y: number; dir: Direction }[] = [];
-  for (const side of [b.dir, LEFT_OF[b.dir], RIGHT_OF[b.dir]]) {
+  for (const side of DIRECTIONS) {
     const d = DELTA[side], p = DELTA[RIGHT_OF[side]]; // p = along the edge (perpendicular to side)
     const bx = cx + 2 * d.dx, by = cy + 2 * d.dy;     // edge-center, one cell beyond the footprint
     cells.push({ x: bx, y: by, dir: side });
@@ -64,7 +63,7 @@ export interface Port { role: 'in' | 'out'; slot: number; side: Direction; dir: 
 // Cold path (render draws arrows from this). `dir` = travel-through direction:
 // out ports flow outward along `side`; in ports flow inward (OPPOSITE[side]).
 export function portsOf(b: Building): Port[] {
-  if (b.type === 'miner') return [{ role: 'out', slot: 0, side: b.dir, dir: b.dir }];
+  if (b.type === 'miner') return DIRECTIONS.map((s) => ({ role: 'out' as const, slot: 0, side: s, dir: s }));
   if (b.type === 'operator') {
     const l = LEFT_OF[b.dir], r = RIGHT_OF[b.dir], back = OPPOSITE[b.dir];
     return [

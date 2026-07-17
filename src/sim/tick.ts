@@ -43,7 +43,7 @@ function canEmitOnto(state: GameState, x: number, y: number): boolean {
 }
 
 // Miners are wide sources: every N ticks they emit their (cached) node value onto
-// each connected output cell across their 3 open sides.
+// each connected output cell across all four sides.
 function mine(state: GameState): void {
   for (const b of state.buildings.values()) {
     if (b.type !== 'miner') continue;

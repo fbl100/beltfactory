@@ -34,11 +34,12 @@ describe('building geometry', () => {
     expect(inPortSlot(b, 1, 0)).toBe(-1);
     expect(inPortSlot(b, 3, 1)).toBe(-1);
   });
-  it('miner emits from all 3 open sides (9 cells), skipping the back', () => {
-    const outs = minerOutputs(miner(0, 0, 'right')); // back = left (x=-1) is skipped
-    expect(outs.length).toBe(9);
+  it('miner emits from all four sides (12 cells)', () => {
+    const outs = minerOutputs(miner(0, 0, 'right'));
+    expect(outs.length).toBe(12);
     expect(outs.filter((o) => o.dir === 'right').map((o) => `${o.x},${o.y}`).sort()).toEqual(['3,0', '3,1', '3,2']);
-    expect(outs.some((o) => o.x === -1)).toBe(false); // no output on the back (left) side
+    expect(outs.filter((o) => o.dir === 'left').map((o) => `${o.x},${o.y}`).sort()).toEqual(['-1,0', '-1,1', '-1,2']); // back side now emits too
+    expect(new Set(outs.map((o) => `${o.x},${o.y}`)).size).toBe(12); // all distinct
   });
   it('operator: inputs on the 3 non-front sides, output on the front', () => {
     const b = op(0, 0, 'right'); // center (1,1); front (output) edge = x=2 column
@@ -57,7 +58,8 @@ describe('building geometry', () => {
     expect(inPortSlot(b, 1, 2)).toBe(0);
     expect(inPortSlot(b, 0, 0)).toBe(-1);
   });
-  it('portsOf: operator 1 out + 3 in; target 4 in', () => {
+  it('portsOf: miner 4 out; operator 1 out + 3 in; target 4 in', () => {
+    expect(portsOf(miner(0, 0, 'right')).filter((p) => p.role === 'out').length).toBe(4);
     const ports = portsOf(op(0, 0, 'right'));
     expect(ports.filter((p) => p.role === 'in').length).toBe(3);
     expect(ports.filter((p) => p.role === 'out').length).toBe(1);
