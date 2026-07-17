@@ -1,11 +1,24 @@
-import type { GameState } from './grid';
+import type { GameState, Direction } from './grid';
 import { cellKey, emptyState } from './grid';
-import type { Cell } from './entities';
+import type { ResourceNode } from './entities';
+import type { Building } from './buildings';
+import { isBlocked, addBuilding } from './buildings';
+import type { OpId } from '../content/operations';
 
 export const CHUNK_SIZE = 16;
 
-export interface Placement { x: number; y: number; cell: Cell }
-export type ChunkGenerator = (seed: number, cx: number, cy: number) => Placement[];
+// Authored (data-only) building placements: anchor coords + facing, no runtime state.
+export type AuthoredBuilding =
+  | { type: 'miner'; x: number; y: number; dir: Direction }
+  | { type: 'operator'; x: number; y: number; dir: Direction; op: OpId }
+  | { type: 'target'; x: number; y: number; dir: Direction; target: bigint };
+
+export interface ChunkContent {
+  belts?: { x: number; y: number; dir: Direction }[];
+  nodes?: ResourceNode[];
+  buildings?: AuthoredBuilding[];
+}
+export type ChunkGenerator = (seed: number, cx: number, cy: number) => ChunkContent;
 
 export function chunkKey(cx: number, cy: number): string {
   return `${cx},${cy}`;
@@ -15,16 +28,36 @@ export function chunkOfCell(x: number, y: number): { cx: number; cy: number } {
   return { cx: Math.floor(x / CHUNK_SIZE), cy: Math.floor(y / CHUNK_SIZE) };
 }
 
-// Generate a chunk at most once. Non-destructive: an existing cell (a player edit,
-// or a cell from an overlapping restore) is never overwritten. This makes resume
-// robust regardless of which chunks were marked loaded.
+// Build a runtime building from an authored placement. Miners read (and cache) the
+// value of the node under their center; a nodeless authored miner is skipped.
+function instantiateBuilding(state: GameState, ab: AuthoredBuilding): void {
+  let b: Building;
+  if (ab.type === 'miner') {
+    const node = state.nodes.get(cellKey(ab.x + 1, ab.y + 1)); // center = anchor + (1,1)
+    if (!node) return;
+    b = { type: 'miner', ax: ab.x, ay: ab.y, dir: ab.dir, value: node.value, everyTicks: 8, sinceEmit: 0 };
+  } else if (ab.type === 'operator') {
+    b = { type: 'operator', ax: ab.x, ay: ab.y, dir: ab.dir, op: ab.op, inputs: [] };
+  } else {
+    b = { type: 'target', ax: ab.x, ay: ab.y, dir: ab.dir, target: ab.target };
+  }
+  addBuilding(state, b); // rejects on footprint conflict, so resume stays non-destructive
+}
+
+// Generate a chunk at most once, non-destructively (never overwrites existing state):
+// nodes -> buildings (need nodes present) -> belts (skip cells a building occupies).
 export function ensureChunk(state: GameState, gen: ChunkGenerator, cx: number, cy: number): void {
   const k = chunkKey(cx, cy);
   if (state.loadedChunks.has(k)) return;
   state.loadedChunks.add(k);
-  for (const p of gen(state.seed, cx, cy)) {
-    const ck = cellKey(p.x, p.y);
-    if (!state.cells.has(ck)) state.cells.set(ck, p.cell);
+  const content = gen(state.seed, cx, cy);
+  for (const n of content.nodes ?? []) {
+    const nk = cellKey(n.x, n.y);
+    if (!state.nodes.has(nk)) state.nodes.set(nk, n);
+  }
+  for (const ab of content.buildings ?? []) instantiateBuilding(state, ab);
+  for (const belt of content.belts ?? []) {
+    if (!isBlocked(state, belt.x, belt.y)) state.belts.set(cellKey(belt.x, belt.y), { type: 'belt', dir: belt.dir });
   }
 }
 

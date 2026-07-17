@@ -1,72 +1,99 @@
 import { describe, it, expect } from 'vitest';
-import { placeBelt, removeCell, paintBeltLine, eraseBeltLine } from './place';
-import { emptyState, cellAt, setCell } from '../sim/grid';
+import {
+  paintBeltLine, removeCell, eraseAt, eraseLine,
+  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator,
+} from './place';
+import { emptyState, beltAt, cellKey } from '../sim/grid';
+import { addBuilding, buildingAt } from '../sim/buildings';
 import { createItem } from '../sim/items';
 
-describe('input.place', () => {
-  it('places a belt on an empty cell (any coordinate)', () => {
+describe('input.belts (footprint-aware)', () => {
+  it('paints a straight run', () => {
     const s = emptyState(1);
-    expect(placeBelt(s, -4, 20, 'right')).toBe(true);
-    expect(cellAt(s, -4, 20)).toEqual({ type: 'belt', dir: 'right' });
+    paintBeltLine(s, 0, 0, 3, 0, 'right');
+    for (let x = 0; x <= 3; x++) expect(beltAt(s, x, 0)).toEqual({ type: 'belt', dir: 'right' });
   });
-  it('refuses to overwrite a non-empty cell', () => {
+  it('orients an L-bend corner toward the turn', () => {
     const s = emptyState(1);
-    setCell(s, 1, 1, { type: 'sink', target: 5n });
-    expect(placeBelt(s, 1, 1, 'right')).toBe(false);
+    paintBeltLine(s, 0, 0, 2, 0, 'right');
+    paintBeltLine(s, 2, 0, 2, 2, 'right');
+    expect(beltAt(s, 2, 0)).toEqual({ type: 'belt', dir: 'down' });
+    expect(beltAt(s, 2, 2)).toEqual({ type: 'belt', dir: 'down' });
   });
-  it('removes only belts', () => {
+  it('does not paint over a building footprint', () => {
     const s = emptyState(1);
-    placeBelt(s, 0, 0, 'up');
-    setCell(s, 1, 0, { type: 'sink', target: 5n });
+    addBuilding(s, { type: 'operator', ax: 2, ay: -1, dir: 'right', op: 'add', inputs: [] }); // covers x2..4, y-1..1
+    paintBeltLine(s, 0, 0, 5, 0, 'right');
+    expect(beltAt(s, 1, 0)).toEqual({ type: 'belt', dir: 'right' });
+    expect(beltAt(s, 2, 0)).toBeUndefined(); // building cell — skipped
+    expect(beltAt(s, 3, 0)).toBeUndefined();
+    expect(beltAt(s, 5, 0)).toEqual({ type: 'belt', dir: 'right' });
+  });
+  it('removeCell drops a stranded item', () => {
+    const s = emptyState(1);
+    paintBeltLine(s, 0, 0, 0, 0, 'right');
+    s.items.push(createItem(1, 9n, 0, 0));
     expect(removeCell(s, 0, 0)).toBe(true);
-    expect(cellAt(s, 0, 0)).toBeUndefined();
-    expect(removeCell(s, 1, 0)).toBe(false);
-  });
-  it('drops an item sitting on a removed belt (no orphaned items)', () => {
-    const s = emptyState(1);
-    placeBelt(s, 3, 3, 'right');
-    s.items.push(createItem(1, 9n, 3, 3));
-    expect(removeCell(s, 3, 3)).toBe(true);
     expect(s.items.length).toBe(0);
   });
 });
 
-describe('input.paint (drag)', () => {
-  it('paints a straight run, every belt pointing along it', () => {
+describe('input.buildings', () => {
+  it('footprintClear: true over bare ground/nodes, false over a belt', () => {
+    const s = emptyState(1);
+    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
+    expect(footprintClear(s, 5, 5)).toBe(true); // a node does not block
+    paintBeltLine(s, 5, 5, 5, 5, 'right');
+    expect(footprintClear(s, 5, 5)).toBe(false);
+  });
+  it('canPlaceMiner requires a node under the center', () => {
+    const s = emptyState(1);
+    expect(canPlaceMiner(s, 5, 5)).toBe(false);
+    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
+    expect(canPlaceMiner(s, 5, 5)).toBe(true);
+  });
+  it('placeMiner caches the node value and rejects when there is no node', () => {
+    const s = emptyState(1);
+    expect(placeMiner(s, 5, 5, 'right')).toBe(false);
+    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
+    expect(placeMiner(s, 5, 5, 'right')).toBe(true);
+    const m = buildingAt(s, 5, 5);
+    expect(m?.type).toBe('miner');
+    expect((m as any).value).toBe(7n);
+  });
+  it('placeOperator rejects on overlap', () => {
+    const s = emptyState(1);
+    expect(canPlaceOperator(s, 5, 5)).toBe(true);
+    expect(placeOperator(s, 5, 5, 'right')).toBe(true);
+    expect(placeOperator(s, 6, 6, 'right')).toBe(false); // overlaps the first
+  });
+});
+
+describe('input.erase', () => {
+  it('erases a belt', () => {
+    const s = emptyState(1);
+    paintBeltLine(s, 0, 0, 0, 0, 'right');
+    expect(eraseAt(s, 0, 0)).toBe(true);
+    expect(beltAt(s, 0, 0)).toBeUndefined();
+  });
+  it('erases a whole building from any footprint cell', () => {
+    const s = emptyState(1);
+    placeOperator(s, 5, 5, 'right'); // anchor (4,4)
+    expect(eraseAt(s, 6, 6)).toBe(true); // non-anchor footprint cell
+    expect(buildingAt(s, 5, 5)).toBeUndefined();
+  });
+  it('refuses to erase the target', () => {
+    const s = emptyState(1);
+    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 12n });
+    expect(eraseAt(s, 1, 1)).toBe(false);
+    expect(buildingAt(s, 1, 1)?.type).toBe('target');
+  });
+  it('eraseLine removes belts along a path but leaves nodes', () => {
     const s = emptyState(1);
     paintBeltLine(s, 0, 0, 3, 0, 'right');
-    for (let x = 0; x <= 3; x++) expect(cellAt(s, x, 0)).toEqual({ type: 'belt', dir: 'right' });
-  });
-  it('orients an L-bend corner toward the turn', () => {
-    const s = emptyState(1);
-    paintBeltLine(s, 0, 0, 2, 0, 'right'); // drag right
-    paintBeltLine(s, 2, 0, 2, 2, 'right'); // then drag down from the corner
-    expect(cellAt(s, 1, 0)).toEqual({ type: 'belt', dir: 'right' });
-    expect(cellAt(s, 2, 0)).toEqual({ type: 'belt', dir: 'down' }); // corner turns
-    expect(cellAt(s, 2, 1)).toEqual({ type: 'belt', dir: 'down' });
-    expect(cellAt(s, 2, 2)).toEqual({ type: 'belt', dir: 'down' });
-  });
-  it('a single-cell paint honors the HUD direction (a plain click)', () => {
-    const s = emptyState(1);
-    paintBeltLine(s, 5, 5, 5, 5, 'up');
-    expect(cellAt(s, 5, 5)).toEqual({ type: 'belt', dir: 'up' });
-  });
-  it('paints across a machine without overwriting it', () => {
-    const s = emptyState(1);
-    setCell(s, 2, 0, { type: 'operator', op: 'add', dir: 'right', inputs: [] });
-    paintBeltLine(s, 0, 0, 4, 0, 'right');
-    expect(cellAt(s, 2, 0)).toMatchObject({ type: 'operator' }); // preserved
-    expect(cellAt(s, 1, 0)).toEqual({ type: 'belt', dir: 'right' }); // belt feeds into it
-    expect(cellAt(s, 3, 0)).toEqual({ type: 'belt', dir: 'right' });
-  });
-  it('erases belts along a path but leaves machines', () => {
-    const s = emptyState(1);
-    paintBeltLine(s, 0, 0, 3, 0, 'right');
-    setCell(s, 2, 0, { type: 'sink', target: 5n });
-    eraseBeltLine(s, 0, 0, 3, 0);
-    expect(cellAt(s, 0, 0)).toBeUndefined();
-    expect(cellAt(s, 1, 0)).toBeUndefined();
-    expect(cellAt(s, 2, 0)).toMatchObject({ type: 'sink' }); // survives
-    expect(cellAt(s, 3, 0)).toBeUndefined();
+    s.nodes.set(cellKey(2, 0), { x: 2, y: 0, value: 5n });
+    eraseLine(s, 0, 0, 3, 0);
+    for (let x = 0; x <= 3; x++) expect(beltAt(s, x, 0)).toBeUndefined();
+    expect(s.nodes.get(cellKey(2, 0))?.value).toBe(5n);
   });
 });

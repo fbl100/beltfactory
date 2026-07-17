@@ -1,20 +1,13 @@
-import { GameState, cellAt, setCell } from '../sim/grid';
-import type { Direction } from '../sim/grid';
+import type { GameState, Direction } from '../sim/grid';
+import { beltAt, setBelt, nodeAt, cellKey, RIGHT_OF } from '../sim/grid';
+import type { MinerBuilding, OperatorBuilding } from '../sim/buildings';
+import { isBlocked, buildingAt, addBuilding, removeBuildingAt } from '../sim/buildings';
+import type { OpId } from '../content/operations';
 
-export function placeBelt(state: GameState, x: number, y: number, dir: Direction): boolean {
-  if (cellAt(state, x, y)) return false;
-  setCell(state, x, y, { type: 'belt', dir });
-  return true;
-}
+// Rotating a facing clockwise (R key) reuses the direction algebra.
+export const ROTATE_CW = RIGHT_OF;
 
-export function removeCell(state: GameState, x: number, y: number): boolean {
-  const cell = cellAt(state, x, y);
-  if (cell?.type !== 'belt') return false;
-  setCell(state, x, y, null);
-  // Drop any item sitting on the removed belt so it isn't stranded on empty ground.
-  state.items = state.items.filter((it) => !(it.x === x && it.y === y));
-  return true;
-}
+// ---------- belts (1x1, footprint-aware) ----------
 
 // Direction you'd travel going from (ax,ay) to an adjacent (bx,by).
 function dirBetween(ax: number, ay: number, bx: number, by: number): Direction {
@@ -24,18 +17,18 @@ function dirBetween(ax: number, ay: number, bx: number, by: number): Direction {
   return 'up';
 }
 
-// Place a belt on an empty cell, or re-orient an existing belt. Machines
-// (extractor/operator/sink) are left untouched so you can paint up to them.
+// Place a belt on an empty cell, or re-orient an existing belt. Belts may sit over
+// a resource node (separate layer) but never over a building footprint.
 function placeOrOrientBelt(state: GameState, x: number, y: number, dir: Direction): void {
-  const c = cellAt(state, x, y);
-  if (!c) setCell(state, x, y, { type: 'belt', dir });
-  else if (c.type === 'belt') c.dir = dir;
+  if (buildingAt(state, x, y)) return;
+  const b = beltAt(state, x, y);
+  if (!b) setBelt(state, x, y, { type: 'belt', dir });
+  else b.dir = dir;
 }
 
-// Paint a contiguous belt run from (ax,ay) to (bx,by) along a Manhattan path
-// (x first, then y), orienting each belt toward the next cell so corners flow
-// the way you dragged. `endDir` is used for a single-cell stroke — i.e. a plain
-// click — so it still honors the HUD-selected direction.
+// Paint a contiguous belt run from (ax,ay) to (bx,by) along a Manhattan path,
+// orienting each belt toward the next cell so corners flow the way you dragged.
+// `endDir` covers a single-cell stroke (a plain click), honoring the HUD facing.
 export function paintBeltLine(
   state: GameState, ax: number, ay: number, bx: number, by: number, endDir: Direction,
 ): void {
@@ -52,13 +45,65 @@ export function paintBeltLine(
   placeOrOrientBelt(state, bx, by, lastDir);
 }
 
-// Erase belts along a Manhattan path (removeCell leaves machines untouched).
-export function eraseBeltLine(
-  state: GameState, ax: number, ay: number, bx: number, by: number,
-): void {
+// Remove a belt (not buildings/nodes); drops any item sitting on it.
+export function removeCell(state: GameState, x: number, y: number): boolean {
+  if (!beltAt(state, x, y)) return false;
+  setBelt(state, x, y, null);
+  state.items = state.items.filter((it) => !(it.x === x && it.y === y));
+  return true;
+}
+
+// ---------- buildings (3x3, centered on the cursor) ----------
+
+// The nine cells of a 3x3 footprint centered on (cx,cy) — anchor = (cx-1, cy-1).
+export function footprintCells(cx: number, cy: number): { x: number; y: number }[] {
+  const cells: { x: number; y: number }[] = [];
+  for (let dy = -1; dy <= 1; dy++)
+    for (let dx = -1; dx <= 1; dx++)
+      cells.push({ x: cx + dx, y: cy + dy });
+  return cells;
+}
+
+export function footprintClear(state: GameState, cx: number, cy: number): boolean {
+  return footprintCells(cx, cy).every((c) => !isBlocked(state, c.x, c.y));
+}
+
+export function canPlaceMiner(state: GameState, cx: number, cy: number): boolean {
+  return footprintClear(state, cx, cy) && nodeAt(state, cx, cy) !== undefined;
+}
+
+export function canPlaceOperator(state: GameState, cx: number, cy: number): boolean {
+  return footprintClear(state, cx, cy);
+}
+
+export function placeMiner(state: GameState, cx: number, cy: number, dir: Direction, everyTicks = 8): boolean {
+  const node = nodeAt(state, cx, cy);
+  if (!node || !footprintClear(state, cx, cy)) return false;
+  const b: MinerBuilding = { type: 'miner', ax: cx - 1, ay: cy - 1, dir, value: node.value, everyTicks, sinceEmit: 0 };
+  return addBuilding(state, b);
+}
+
+export function placeOperator(state: GameState, cx: number, cy: number, dir: Direction, op: OpId = 'add'): boolean {
+  if (!footprintClear(state, cx, cy)) return false;
+  const b: OperatorBuilding = { type: 'operator', ax: cx - 1, ay: cy - 1, dir, op, inputs: [] };
+  return addBuilding(state, b);
+}
+
+// ---------- erase ----------
+
+// Erase a belt, or a whole building (from any of its cells). The target hub is
+// protected (a 9-year-old can't delete the goal); nodes are never removed.
+export function eraseAt(state: GameState, x: number, y: number): boolean {
+  if (removeCell(state, x, y)) return true;
+  const b = buildingAt(state, x, y);
+  if (b && b.type !== 'target') return removeBuildingAt(state, x, y);
+  return false;
+}
+
+export function eraseLine(state: GameState, ax: number, ay: number, bx: number, by: number): void {
   let cx = ax, cy = ay;
   for (;;) {
-    removeCell(state, cx, cy);
+    eraseAt(state, cx, cy);
     if (cx === bx && cy === by) break;
     if (cx !== bx) cx += Math.sign(bx - cx);
     else cy += Math.sign(by - cy);

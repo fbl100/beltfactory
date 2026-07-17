@@ -1,26 +1,25 @@
-import type { ChunkGenerator, Placement } from '../sim/world';
-import type { Cell } from '../sim/entities';
+import type { ChunkGenerator, AuthoredBuilding } from '../sim/world';
+import type { ResourceNode } from '../sim/entities';
 
-// Content model (A): the origin chunk holds an authored addition puzzle
-// (7 + 5 -> target 12); every other chunk is empty buildable land. Content
-// model (B) later replaces the non-origin branch with procedural deposits.
+// Content model: the origin chunk is an authored addition puzzle — two number
+// nodes (7 and 5) already fitted with miners, an add operator, and a target-12
+// hub. The player lays belts to route 7 and 5 through the + into the target.
+// Every other chunk is empty buildable land. Buildings are 3x3 (anchor coords).
 export const TARGET = 12n;
 
-const STARTER: Placement[] = [
-  { x: 1, y: 3, cell: { type: 'extractor', dir: 'right', value: 7n, everyTicks: 8, sinceEmit: 0 } },
-  { x: 1, y: 9, cell: { type: 'extractor', dir: 'right', value: 5n, everyTicks: 8, sinceEmit: 0 } },
-  { x: 8, y: 6, cell: { type: 'operator', op: 'add', dir: 'right', inputs: [] } },
-  { x: 13, y: 6, cell: { type: 'sink', target: TARGET } },
+const NODES: ResourceNode[] = [
+  { x: 2, y: 2, value: 7n },
+  { x: 2, y: 8, value: 5n },
+];
+
+const BUILDINGS: AuthoredBuilding[] = [
+  { type: 'miner', x: 1, y: 1, dir: 'right' },                  // center (2,2)=7  -> out (4,2)
+  { type: 'miner', x: 1, y: 7, dir: 'right' },                  // center (2,8)=5  -> out (4,8)
+  { type: 'operator', x: 7, y: 4, dir: 'right', op: 'add' },    // center (8,5); ins (8,4)/(8,6); out (10,5)
+  { type: 'target', x: 12, y: 4, dir: 'right', target: TARGET }, // center (13,5); left-in (12,5)
 ];
 
 export const mvpGenerator: ChunkGenerator = (_seed, cx, cy) =>
-  cx === 0 && cy === 0 ? STARTER.map((p) => ({ x: p.x, y: p.y, cell: cloneCell(p.cell) })) : [];
-
-// Deep-clone a cell so live runtime state (operator.inputs, extractor.sinceEmit)
-// is never shared between the static template and a live game.
-function cloneCell(cell: Cell): Cell {
-  return JSON.parse(
-    JSON.stringify(cell, (_k, v) => (typeof v === 'bigint' ? { __big: v.toString() } : v)),
-    (_k, v) => (v && typeof v === 'object' && '__big' in v ? BigInt((v as any).__big) : v),
-  );
-}
+  cx === 0 && cy === 0
+    ? { nodes: NODES.map((n) => ({ ...n })), buildings: BUILDINGS.map((b) => ({ ...b })) }
+    : {};

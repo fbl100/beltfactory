@@ -1,26 +1,6 @@
 import type { Direction } from './grid';
 
-export type OpId = string;
-
+// The 1x1 layer. Belts carry items; resource nodes are a passive ground layer
+// that miners sit on. Buildings (miner/operator/target) live in ./buildings.
 export interface BeltCell { type: 'belt'; dir: Direction }
-export interface ExtractorCell {
-  type: 'extractor';
-  dir: Direction;
-  value: bigint;
-  everyTicks: number;
-  sinceEmit: number;
-}
-export interface OperatorCell { type: 'operator'; op: OpId; dir: Direction; inputs: bigint[] }
-export interface SinkCell { type: 'sink'; target: bigint }
-
-export type Cell = BeltCell | ExtractorCell | OperatorCell | SinkCell;
-
-export function accepts(cell: Cell | undefined, incomingCount: number): boolean {
-  if (!cell) return false;
-  switch (cell.type) {
-    case 'belt': return true;
-    case 'sink': return true;
-    case 'extractor': return false;
-    case 'operator': return cell.inputs.length + incomingCount < 2;
-  }
-}
+export interface ResourceNode { x: number; y: number; value: bigint }

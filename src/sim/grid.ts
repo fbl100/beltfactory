@@ -1,7 +1,11 @@
-import type { Cell } from './entities';
+import type { BeltCell, ResourceNode } from './entities';
+import type { Building } from './buildings';
 import type { Item } from './items';
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
+
+// Clockwise on a y-down screen: up -> right -> down -> left.
+export const DIRECTIONS: readonly Direction[] = ['up', 'right', 'down', 'left'];
 
 export const DELTA: Record<Direction, { dx: number; dy: number }> = {
   up: { dx: 0, dy: -1 },
@@ -10,14 +14,22 @@ export const DELTA: Record<Direction, { dx: number; dy: number }> = {
   right: { dx: 1, dy: 0 },
 };
 
+export const OPPOSITE: Record<Direction, Direction> = { up: 'down', down: 'up', left: 'right', right: 'left' };
+export const RIGHT_OF: Record<Direction, Direction> = { up: 'right', right: 'down', down: 'left', left: 'up' };
+export const LEFT_OF: Record<Direction, Direction> = { up: 'left', left: 'down', down: 'right', right: 'up' };
+
 export interface GameState {
   version: number;
   seed: number;
   tick: number;
-  cells: Map<string, Cell>;
+  belts: Map<string, BeltCell>;          // 1x1
+  buildings: Map<string, Building>;      // key = cellKey(anchor) = top-left of the 3x3
+  nodes: Map<string, ResourceNode>;      // passive ground layer
+  occupancy: Map<string, string>;        // DERIVED: footprint cell key -> building anchor key; never serialized
   loadedChunks: Set<string>;
   items: Item[];
   nextItemId: number;
+  misses: number;                        // wrong-value-at-target count (feedback; not serialized)
   status: 'playing' | 'won';
 }
 
@@ -30,14 +42,18 @@ export function parseKey(key: string): { x: number; y: number } {
   return { x: Number(key.slice(0, c)), y: Number(key.slice(c + 1)) };
 }
 
-export function cellAt(state: GameState, x: number, y: number): Cell | undefined {
-  return state.cells.get(cellKey(x, y));
+export function beltAt(state: GameState, x: number, y: number): BeltCell | undefined {
+  return state.belts.get(cellKey(x, y));
 }
 
-export function setCell(state: GameState, x: number, y: number, cell: Cell | null): void {
+export function setBelt(state: GameState, x: number, y: number, cell: BeltCell | null): void {
   const k = cellKey(x, y);
-  if (cell) state.cells.set(k, cell);
-  else state.cells.delete(k);
+  if (cell) state.belts.set(k, cell);
+  else state.belts.delete(k);
+}
+
+export function nodeAt(state: GameState, x: number, y: number): ResourceNode | undefined {
+  return state.nodes.get(cellKey(x, y));
 }
 
 export function itemAt(state: GameState, x: number, y: number): Item | undefined {
@@ -46,8 +62,9 @@ export function itemAt(state: GameState, x: number, y: number): Item | undefined
 
 export function emptyState(seed: number): GameState {
   return {
-    version: 1, seed, tick: 0,
-    cells: new Map(), loadedChunks: new Set(),
-    items: [], nextItemId: 1, status: 'playing',
+    version: 2, seed, tick: 0,
+    belts: new Map(), buildings: new Map(), nodes: new Map(), occupancy: new Map(),
+    loadedChunks: new Set(),
+    items: [], nextItemId: 1, misses: 0, status: 'playing',
   };
 }

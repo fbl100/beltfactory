@@ -1,34 +1,47 @@
 import { describe, it, expect } from 'vitest';
 import { serialize, deserialize, SAVE_VERSION } from './save';
-import { emptyState, setCell, cellAt } from './grid';
+import { emptyState, beltAt, cellKey } from './grid';
+import { addBuilding, buildingAt } from './buildings';
 import { createItem } from './items';
 
 function sample() {
   const s = emptyState(4242);
   s.tick = 12; s.nextItemId = 3;
   s.loadedChunks.add('0,0');
-  setCell(s, 1, 0, { type: 'extractor', dir: 'right', value: 5n, everyTicks: 4, sinceEmit: 1 });
-  setCell(s, 8, 6, { type: 'operator', op: 'add', dir: 'right', inputs: [7n] });
-  setCell(s, 13, 6, { type: 'sink', target: 30n });
-  s.items.push(createItem(1, 9999999999n, 8, 6));
+  s.belts.set(cellKey(4, 2), { type: 'belt', dir: 'right' });
+  s.nodes.set(cellKey(2, 2), { x: 2, y: 2, value: 7n });
+  addBuilding(s, { type: 'miner', ax: 1, ay: 1, dir: 'right', value: 7n, everyTicks: 8, sinceEmit: 2 });
+  addBuilding(s, { type: 'operator', ax: 7, ay: 4, dir: 'right', op: 'add', inputs: [7n] });
+  addBuilding(s, { type: 'target', ax: 12, ay: 4, dir: 'right', target: 30n });
+  s.items.push(createItem(1, 9999999999n, 4, 2));
   return s;
 }
 
 describe('save', () => {
-  it('round-trips sparse state including Map, Set and BigInt', () => {
-    const s = sample();
-    const r = deserialize(serialize(s));
+  it('round-trips belts/buildings/nodes/items incl. BigInt, and rebuilds occupancy', () => {
+    const r = deserialize(serialize(sample()));
     expect(r.seed).toBe(4242);
     expect(r.tick).toBe(12);
+    expect(r.version).toBe(2);
     expect(r.loadedChunks.has('0,0')).toBe(true);
-    expect(cellAt(r, 8, 6)).toBeTruthy();
-    expect((cellAt(r, 8, 6) as any).inputs[0]).toBe(7n);
-    expect(typeof r.items[0].value).toBe('bigint');
+    expect(r.belts instanceof Map).toBe(true);
+    expect(r.buildings instanceof Map).toBe(true);
+    expect(r.nodes instanceof Map).toBe(true);
+    expect(beltAt(r, 4, 2)).toEqual({ type: 'belt', dir: 'right' });
+    expect(r.nodes.get(cellKey(2, 2))?.value).toBe(7n);
+    const op = [...r.buildings.values()].find((b) => b.type === 'operator') as any;
+    expect(op.inputs[0]).toBe(7n);
+    const miner = [...r.buildings.values()].find((b) => b.type === 'miner') as any;
+    expect(typeof miner.value).toBe('bigint');
     expect(r.items[0].value).toBe(9999999999n);
-    expect(r.cells instanceof Map).toBe(true);
-    expect(r.loadedChunks instanceof Set).toBe(true);
+    // occupancy rebuilt: a footprint cell resolves to its building
+    expect(buildingAt(r, 2, 2)?.type).toBe('miner'); // miner anchor (1,1) covers (2,2)
+    expect(r.occupancy.size).toBe(27); // 3 buildings * 9 cells
   });
-  it('stamps the current version', () => {
+  it('stamps version 2', () => {
     expect(JSON.parse(serialize(sample())).version).toBe(SAVE_VERSION);
+  });
+  it('rejects an old / unknown save version', () => {
+    expect(() => deserialize('{"version":1}')).toThrow();
   });
 });

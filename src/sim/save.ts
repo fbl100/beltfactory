@@ -1,6 +1,7 @@
 import type { GameState } from './grid';
+import { rebuildOccupancy } from './buildings';
 
-export const SAVE_VERSION = 1;
+export const SAVE_VERSION = 2;
 
 // JSON has no BigInt: encode as { __big: "<decimal>" } and revive on load.
 function replacer(_key: string, value: unknown): unknown {
@@ -19,21 +20,31 @@ export function serialize(state: GameState): string {
     status: state.status,
     nextItemId: state.nextItemId,
     items: state.items,
-    cells: [...state.cells.entries()],   // Map -> [key, cell][]
-    chunks: [...state.loadedChunks],     // Set -> string[]
+    belts: [...state.belts.entries()],
+    buildings: [...state.buildings.entries()],
+    nodes: [...state.nodes.entries()],
+    chunks: [...state.loadedChunks],
+    // occupancy (derived) and misses (session feedback) are intentionally not saved.
   }, replacer);
 }
 
 export function deserialize(json: string): GameState {
   const o = JSON.parse(json, reviver);
-  return {
+  if (o.version !== SAVE_VERSION) throw new Error(`unsupported save version ${o.version}`);
+  const state: GameState = {
     version: o.version,
     seed: o.seed,
     tick: o.tick,
     status: o.status,
     nextItemId: o.nextItemId,
     items: o.items,
-    cells: new Map(o.cells),
+    belts: new Map(o.belts),
+    buildings: new Map(o.buildings),
+    nodes: new Map(o.nodes),
+    occupancy: new Map(),
     loadedChunks: new Set(o.chunks),
+    misses: 0,
   };
+  rebuildOccupancy(state); // derive the spatial index from the buildings map
+  return state;
 }
