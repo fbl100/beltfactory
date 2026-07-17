@@ -91,6 +91,7 @@ export function resetGame(state: GameState, seed: number, gen: ChunkGenerator): 
   state.loadedChunks.clear();
   state.items = [];
   state.nextItemId = 1;
+  state.levelIndex = 0;   // back to level 0 BEFORE regen, so the origin puzzle == LEVELS[0]
   state.delivered = 0;
   state.misses = 0;
   state.status = 'playing';

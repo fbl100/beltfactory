@@ -5,6 +5,7 @@ import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
 import { outCell, minerOutputs, inPortSlot, buildingAt } from './buildings';
 import { createItem } from './items';
+import { advanceLevel, isStaleTargetValue } from './progression';
 import { applyOp } from '../content/operations';
 import { TUNNEL_REACH } from '../content/config';
 
@@ -20,7 +21,19 @@ export function step(state: GameState): void {
   // tick's move() should wait until *next* tick's produce() — a one-tick settle.
   produce(state);
   move(state);
+  // Check the goal AFTER movement settles, so the target value is stable for the whole tick
+  // (advancing mid-move() could mis-credit or drop same-tick deliveries). At most one level
+  // advances per tick.
+  checkLevel(state);
   state.tick++;
+}
+
+// If this level's delivery bar is full, advance to the next level (or win the whole game).
+function checkLevel(state: GameState): void {
+  if (state.status !== 'playing') return;
+  for (const b of state.buildings.values()) {
+    if (b.type === 'target' && state.delivered >= b.required) { advanceLevel(state, b); return; }
+  }
 }
 
 // A cell that can receive a freshly-emitted item: an empty carrier (belt/splitter/tunnel).
@@ -110,12 +123,11 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
       moved.add(it.id); return false; // back-pressure: both inputs full
     }
     if (b.type === 'target' && slot >= 0) {
-      if (it.value === b.target) {
-        state.delivered++;
-        if (state.delivered >= b.required) state.status = 'won';
-      } else {
-        state.misses++;
-      }
+      // Count only; the level-up / win decision happens once per tick in checkLevel(), after
+      // all movement settles — see step(). A value that was a target on an earlier level is
+      // stale leftover output from the pre-advance factory, not a mistake — don't punish it.
+      if (it.value === b.target) state.delivered++;
+      else if (!isStaleTargetValue(state, it.value)) state.misses++;
       removed.add(it.id); return true;
     }
     moved.add(it.id); return false; // non-port footprint cell / miner face

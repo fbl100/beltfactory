@@ -1,8 +1,6 @@
 // Tunable balance constants (data-driven — edit freely to retune pacing).
 // Rates assume the sim runs at 2.5 ticks/s (150 ticks/min); see sim/tick.ts.
-
-export const TARGET = 12n;        // the number to produce this level (7 + 5)
-export const TARGET_COUNT = 20;   // deliveries to complete the level (big enough that adding adders saves real time)
+// The per-level targets / delivery counts / number deposits live in content/levels.ts.
 
 // Throughput. An adder is 2-in-1-out, so its OUTPUT rate equals its PER-INPUT rate,
 // and total input = 2 x output. Balanced set: operator 30/min out (= 30/min from each

@@ -6,6 +6,7 @@ import type { BeltCell } from './entities';
 import { createItem } from './items';
 import { addBuilding } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
+import { LEVELS } from '../content/levels';
 
 const belt = (dir: Direction): BeltCell => ({ type: 'belt', dir });
 
@@ -160,8 +161,9 @@ describe('tick: tunnel', () => {
 });
 
 describe('tick: target / win', () => {
-  it('counts each correct delivery and wins at the required count', () => {
+  it('counts each correct delivery and wins at the required count on the final level', () => {
     const s = emptyState(1);
+    s.levelIndex = LEVELS.length - 1; // final level: filling the bar wins the whole game
     const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 };
     addBuilding(s, t); // center (1,1); accepts on all 4 edges (left edge = (0,1))
     setBelt(s, -1, 1, belt('right')); // feeds the left edge (0,1)
@@ -174,6 +176,23 @@ describe('tick: target / win', () => {
     expect(s.delivered).toBe(2);
     expect(s.status).toBe('won'); // reached the required count
   });
+
+  it('reaching the required count on a non-final level advances the goal instead of winning', () => {
+    const s = emptyState(1);
+    s.levelIndex = 0; // not the final level
+    const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 };
+    addBuilding(s, t);
+    setBelt(s, -1, 1, belt('right'));
+    s.items.push(createItem(1, 9n, -1, 1));
+    s.items.push(createItem(2, 9n, -3, 1)); // two feed cells so both arrive
+    setBelt(s, -3, 1, belt('right'));
+    setBelt(s, -2, 1, belt('right'));
+    for (let i = 0; i < 6; i++) step(s);
+    expect(s.status).toBe('playing');       // advanced, not won
+    expect(s.levelIndex).toBe(1);           // moved to level 1
+    expect(t.target).toBe(LEVELS[1].target); // hub re-pointed at the next goal
+    expect(s.delivered).toBe(0);            // bar reset for the new level
+  });
   it('counts a miss (not a delivery) on a wrong value', () => {
     const s = emptyState(1);
     addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 3 });
@@ -184,6 +203,19 @@ describe('tick: target / win', () => {
     expect(s.delivered).toBe(0);
     expect(s.status).toBe('playing');
     expect(s.misses).toBe(1);
+  });
+  it('does not punish leftover output equal to a PREVIOUS level target after advancing', () => {
+    const s = emptyState(1);
+    s.levelIndex = 1; // LEVELS[0].target is now a stale value the old factory still makes
+    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: LEVELS[1].target, required: 5 });
+    setBelt(s, -1, 1, belt('right'));
+    s.items.push(createItem(1, LEVELS[0].target, -1, 1)); // e.g. still delivering 12 when the goal is 20
+    setBelt(s, -3, 1, belt('right'));
+    s.items.push(createItem(2, 999n, -3, 1));             // a genuinely wrong value, though
+    setBelt(s, -2, 1, belt('right'));
+    for (let i = 0; i < 4; i++) step(s);
+    expect(s.delivered).toBe(0);
+    expect(s.misses).toBe(1); // only the truly-wrong 999 counts; the stale old-target value doesn't
   });
   it('an item stepping onto the front/output edge (not an input) stops (no crash, no consume)', () => {
     const s = emptyState(1);

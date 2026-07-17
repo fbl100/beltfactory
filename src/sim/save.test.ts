@@ -6,7 +6,7 @@ import { createItem } from './items';
 
 function sample() {
   const s = emptyState(4242);
-  s.tick = 12; s.nextItemId = 3; s.delivered = 4;
+  s.tick = 12; s.nextItemId = 3; s.delivered = 4; s.levelIndex = 2;
   s.loadedChunks.add('0,0');
   s.belts.set(cellKey(4, 2), { type: 'belt', dir: 'right' });
   s.splitters.set(cellKey(5, 5), { type: 'splitter', dir: 'right', next: 2 });
@@ -26,7 +26,8 @@ describe('save', () => {
     expect(r.seed).toBe(4242);
     expect(r.tick).toBe(12);
     expect(r.delivered).toBe(4);
-    expect(r.version).toBe(3);
+    expect(r.levelIndex).toBe(2);
+    expect(r.version).toBe(4);
     const tgt = [...r.buildings.values()].find((b) => b.type === 'target') as any;
     expect(tgt.required).toBe(8);
     const opBuilding = [...r.buildings.values()].find((b) => b.type === 'operator') as any;
@@ -51,10 +52,21 @@ describe('save', () => {
     expect(buildingAt(r, 2, 2)?.type).toBe('miner'); // miner anchor (1,1) covers (2,2)
     expect(r.occupancy.size).toBe(27); // 3 buildings * 9 cells
   });
-  it('stamps version 2', () => {
+  it('stamps the current save version', () => {
     expect(JSON.parse(serialize(sample())).version).toBe(SAVE_VERSION);
   });
-  it('rejects an old / unknown save version', () => {
+  it('rejects a pre-progression-incompatible / unknown save version', () => {
     expect(() => deserialize('{"version":1}')).toThrow();
+    expect(() => deserialize('{"version":2}')).toThrow();
+    expect(() => deserialize('{"version":99}')).toThrow();
+  });
+  it('accepts a v3 (pre-progression) save and defaults levelIndex to 0', () => {
+    const v3: any = JSON.parse(serialize(sample()));
+    delete v3.levelIndex;   // v3 had no progression index
+    v3.version = 3;
+    const r = deserialize(JSON.stringify(v3));
+    expect(r.levelIndex).toBe(0);
+    expect(r.buildings instanceof Map).toBe(true); // built factory carried over
+    expect([...r.buildings.values()].some((b) => b.type === 'target')).toBe(true);
   });
 });

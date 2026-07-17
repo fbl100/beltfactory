@@ -1,0 +1,71 @@
+import { describe, it, expect } from 'vitest';
+import { LEVELS, clampLevelIndex } from './levels';
+
+// Every node value available at (and before) a given level index (deposits are cumulative).
+function cumulativeNodeValues(index: number): bigint[] {
+  const vals: bigint[] = [];
+  for (let i = 0; i <= index; i++) for (const n of LEVELS[i].grantNodes) vals.push(n.value);
+  return vals;
+}
+
+// Can `target` be formed by repeated addition of the available node values? (Classic coin
+// reachability — every value is usable any number of times.) Targets are small, so a Number DP
+// is exact. This is the guardrail on the tuning surface: a mistuned edit that makes a target
+// unreachable via addition fails here rather than stranding the player.
+function reachableByAddition(target: bigint, values: bigint[]): boolean {
+  const t = Number(target);
+  const vs = values.map(Number).filter((v) => v > 0);
+  const reach = new Array(t + 1).fill(false);
+  reach[0] = true;
+  for (const v of vs) for (let j = v; j <= t; j++) if (reach[j - v]) reach[j] = true;
+  return reach[t];
+}
+
+// The target-hub footprint (worldgen authors the hub at anchor (12,4)); deposits must not land on it.
+const HUB = { minX: 12, maxX: 14, minY: 4, maxY: 6 };
+function onHub(x: number, y: number): boolean {
+  return x >= HUB.minX && x <= HUB.maxX && y >= HUB.minY && y <= HUB.maxY;
+}
+
+describe('content/levels', () => {
+  it('has a gentle, forgiving first level', () => {
+    expect(LEVELS.length).toBeGreaterThanOrEqual(2);
+    expect(LEVELS[0].target).toBeGreaterThan(0n);
+    expect(LEVELS[0].target).toBeLessThanOrEqual(30n); // Phase-1 addition, kid-sized
+  });
+
+  it('targets strictly increase and every level asks for at least one delivery', () => {
+    for (let i = 0; i < LEVELS.length; i++) {
+      expect(LEVELS[i].required).toBeGreaterThan(0);
+      if (i > 0) expect(LEVELS[i].target > LEVELS[i - 1].target).toBe(true);
+    }
+  });
+
+  it('every level target is reachable by addition from its cumulative deposits', () => {
+    for (let i = 0; i < LEVELS.length; i++) {
+      const values = cumulativeNodeValues(i);
+      expect(values.length).toBeGreaterThan(0);
+      expect(reachableByAddition(LEVELS[i].target, values)).toBe(true);
+    }
+  });
+
+  it('grant-node coordinates are unique and never sit on the target hub', () => {
+    const seen = new Set<string>();
+    for (const lvl of LEVELS)
+      for (const n of lvl.grantNodes) {
+        const k = `${n.x},${n.y}`;
+        expect(seen.has(k)).toBe(false); // no two deposits share a cell (would silently drop one)
+        seen.add(k);
+        expect(onHub(n.x, n.y)).toBe(false);
+        expect(n.value).toBeGreaterThan(0n);
+      }
+  });
+
+  it('clampLevelIndex keeps the index in range', () => {
+    expect(clampLevelIndex(-5)).toBe(0);
+    expect(clampLevelIndex(0)).toBe(0);
+    expect(clampLevelIndex(999)).toBe(LEVELS.length - 1);
+    expect(clampLevelIndex(NaN)).toBe(0);
+    expect(clampLevelIndex(2.7)).toBe(2);
+  });
+});

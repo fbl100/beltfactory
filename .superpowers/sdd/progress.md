@@ -38,9 +38,23 @@ Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser r
 - Belt tunnels (e38bd5b): Factorio-style underground belts (own layer); "Tunnel" tool
   (hotkey 5); exit up to 5 cells ahead => up to 4 belts overhead. Completes the core mechanics.
 
-Status: 83 tests, tsc clean, vite build, browser-verified for splitters, wide-miner,
-reset, and tunnels.
+- Multi-target progression: filling a level's delivery bar AUTO-ADVANCES the same factory to a
+  bigger target + grants a new number deposit (machine keeps running); final level wins.
+  - Data: `src/content/levels.ts` — editable ladder (12→20→30→50→100, required 10 each;
+    gentle "add the new number" for L1-3, bold "double the new number" for L4/5: 50=25+25,
+    100=50+50 via the wide miner). `LEVELS` is the single source of truth; `clampLevelIndex`.
+  - Logic: `src/sim/progression.ts` — `advanceLevel` (after move() in tick, one/​tick),
+    `reconcileLevel`/`syncTargetToLevel` (LEVELS drives the hub on load; migrates saves),
+    `grantNode` relocates a buried deposit to clear ground, `isStaleTargetValue` (leftover
+    old-target output isn't punished with "Not yet").
+  - `GameState.levelIndex`; save **v4** (round-trips levelIndex; accepts+migrates v3 in place so
+    the family factory survives, even a previously-"won" save). HUD: "Level N/M" + auto-advance
+    toast + grace on the flash. Camera nudges to a newly-revealed deposit if off-screen.
+  - Designed via an adversarial 5-lens design panel; reviewed via an adversarial code-review
+    workflow (5 confirmed findings all fixed: save-snap boundary, stale-value flash, dead code,
+    redundant clamp). Browser-verified: build→advance→toast→new deposit→resume, no "Not yet" spam.
 
-NEXT: multi-target progression (advancing targets + more operators/nodes as you go — now
-reachable via splitters/tunnels); subtraction / × / ÷ as editable content data; procedural
-deposits beyond the origin chunk; drag-to-pan; adversarial code-review pass over the rework.
+Status: 101 tests, tsc clean, vite build, browser-verified (advance-through-levels + resume).
+
+NEXT: subtraction / × / ÷ as editable content data (wire `Level.ops`); procedural deposits
+beyond the origin chunk; drag-to-pan; more levels / retune the ladder for her actual pace.

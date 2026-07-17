@@ -45,6 +45,8 @@ export interface Renderer {
   draw(state: GameState, alpha: number): void;
   screenToWorld(px: number, py: number): { x: number; y: number };
   visibleChunkRange(): { minCx: number; minCy: number; maxCx: number; maxCy: number };
+  // Unpadded world-cell extent of the viewport (for e.g. focusing a newly-granted deposit).
+  visibleCellBounds(): { minX: number; maxX: number; minY: number; maxY: number };
   resize(w: number, h: number): void;
   destroy(): void;
 }

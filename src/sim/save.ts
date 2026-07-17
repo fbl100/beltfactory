@@ -1,7 +1,12 @@
 import type { GameState } from './grid';
 import { rebuildOccupancy } from './buildings';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
+
+// Versions this reader can still load. v3 (pre-progression, single fixed target) is migrated
+// on load: it deserializes faithfully, then reconcileLevel() (called at boot) rolls it into
+// level 0 — the family's built factory survives the upgrade.
+const READABLE_VERSIONS = new Set([3, 4]);
 
 // JSON has no BigInt: encode as { __big: "<decimal>" } and revive on load.
 function replacer(_key: string, value: unknown): unknown {
@@ -19,6 +24,7 @@ export function serialize(state: GameState): string {
     tick: state.tick,
     status: state.status,
     nextItemId: state.nextItemId,
+    levelIndex: state.levelIndex,
     delivered: state.delivered,
     items: state.items,
     belts: [...state.belts.entries()],
@@ -33,13 +39,14 @@ export function serialize(state: GameState): string {
 
 export function deserialize(json: string): GameState {
   const o = JSON.parse(json, reviver);
-  if (o.version !== SAVE_VERSION) throw new Error(`unsupported save version ${o.version}`);
+  if (!READABLE_VERSIONS.has(o.version)) throw new Error(`unsupported save version ${o.version}`);
   const state: GameState = {
     version: o.version,
     seed: o.seed,
     tick: o.tick,
     status: o.status,
     nextItemId: o.nextItemId,
+    levelIndex: typeof o.levelIndex === 'number' ? o.levelIndex : 0, // v3 has no levelIndex -> 0
     delivered: o.delivered ?? 0,
     items: o.items,
     belts: new Map(o.belts),

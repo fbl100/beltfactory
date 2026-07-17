@@ -64,6 +64,11 @@ export class PixiRenderer implements Renderer {
     };
   }
 
+  visibleCellBounds() {
+    const halfW = this.vw / 2 / this.cam.zoom, halfH = this.vh / 2 / this.cam.zoom;
+    return { minX: this.cam.x - halfW, maxX: this.cam.x + halfW, minY: this.cam.y - halfH, maxY: this.cam.y + halfH };
+  }
+
   // A filled triangle centered on (cxp,cyp) pointing in world `dir`, radius ~size (px).
   private arrow(g: Graphics, cxp: number, cyp: number, size: number, dir: Direction, color: number, alpha = 1) {
     const d = DELTA[dir], px = -d.dy, py = d.dx; // perpendicular

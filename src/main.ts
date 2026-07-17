@@ -3,11 +3,12 @@ import { DEFAULT_THEME } from './render/themes';
 import type { Theme, Camera } from './render/renderer';
 import { newGame, resetGame, ensureChunksInRange } from './sim/world';
 import { mvpGenerator } from './content/worldgen';
-import { TARGET_COUNT, TUNNEL_REACH } from './content/config';
+import { TUNNEL_REACH } from './content/config';
 import { serialize, deserialize } from './sim/save';
 import { step, TICKS_PER_SECOND } from './sim/tick';
+import { reconcileLevel } from './sim/progression';
 import type { GameState, Direction } from './sim/grid';
-import { DELTA } from './sim/grid';
+import { DELTA, parseKey } from './sim/grid';
 import {
   paintBeltLine, eraseLine, placeMiner, placeOperator, placeSplitter, placeTunnel,
   canPlaceMiner, canPlaceOperator, ROTATE_CW,
@@ -26,21 +27,13 @@ function loadOrNewGame(saved: string | null): GameState {
     try {
       const s = deserialize(saved);
       if (Array.isArray(s.items) && s.belts instanceof Map && s.buildings instanceof Map
-        && s.nodes instanceof Map && s.loadedChunks instanceof Set) { healLevel(s); return s; }
+        && s.nodes instanceof Map && s.loadedChunks instanceof Set) { reconcileLevel(s); return s; }
     } catch {
       // unreadable / old-version save -> start fresh
     }
     console.warn('Ignoring an unreadable save; starting a new game.');
   }
   return newGame(Date.now() >>> 0, mvpGenerator);
-}
-
-// Repair older/partial saves so the level goal is never undefined.
-function healLevel(s: GameState): void {
-  if (typeof s.delivered !== 'number') s.delivered = 0;
-  for (const b of s.buildings.values()) {
-    if (b.type === 'target' && typeof b.required !== 'number') b.required = TARGET_COUNT;
-  }
 }
 
 async function boot() {
@@ -52,6 +45,18 @@ async function boot() {
   await renderer.init(theme);
   const cam: Camera = { x: 8, y: 6, zoom: 44 };
   renderer.setCamera(cam);
+
+  // When a level-up reveals a new number deposit, nudge the camera to it if it isn't already
+  // comfortably in view — so she never has to hunt off-screen for the new number.
+  let lastLevelIndex = state.levelIndex;
+  const seenNodeKeys = new Set(state.nodes.keys());
+  function ensureNodeVisible(nx: number, ny: number): void {
+    const b = renderer.visibleCellBounds();
+    const m = 2; // keep the whole 3x3 miner spot in view, not just the center
+    if (nx - 1 < b.minX + m || nx + 1 > b.maxX - m || ny - 1 < b.minY + m || ny + 1 > b.maxY - m) {
+      cam.x = nx; cam.y = ny; renderer.setCamera(cam);
+    }
+  }
 
   let placeDir: Direction = 'right';
   let tool: Tool = 'belt';
@@ -66,6 +71,9 @@ async function boot() {
     () => {
       if (!confirm('Start this level over? This clears everything you built.')) return;
       resetGame(state, Date.now() >>> 0, mvpGenerator);
+      lastLevelIndex = state.levelIndex;
+      seenNodeKeys.clear();
+      for (const k of state.nodes.keys()) seenNodeKeys.add(k);
       dirty = true;
       apiSaveState(serialize(state)); // overwrite the old save right away
     },
@@ -162,6 +170,13 @@ async function boot() {
   function frame(now: number) {
     acc = Math.min(acc + (now - last), MAX_CATCHUP); last = now;
     while (acc >= tickMs) { step(state); acc -= tickMs; dirty = true; }
+    // A level-up may have granted a new deposit; bring it into view if it's off-screen.
+    if (state.levelIndex !== lastLevelIndex) {
+      lastLevelIndex = state.levelIndex;
+      for (const k of state.nodes.keys()) {
+        if (!seenNodeKeys.has(k)) { seenNodeKeys.add(k); const p = parseKey(k); ensureNodeVisible(p.x, p.y); }
+      }
+    }
     const cr = renderer.visibleChunkRange();
     ensureChunksInRange(state, mvpGenerator, cr.minCx, cr.minCy, cr.maxCx, cr.maxCy);
     // placement ghost for the building tools

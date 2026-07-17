@@ -2,6 +2,7 @@ import type { Theme } from '../render/renderer';
 import { THEMES } from '../render/themes';
 import { formatValue } from '../render/format';
 import type { GameState, Direction } from '../sim/grid';
+import { LEVELS, clampLevelIndex } from '../content/levels';
 
 export type Tool = 'belt' | 'miner' | 'operator' | 'splitter' | 'tunnel';
 
@@ -14,6 +15,9 @@ export function createHud(
 ) {
   const bar = document.createElement('div');
   bar.style.cssText = 'position:fixed;top:8px;left:8px;right:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-family:system-ui;z-index:5';
+
+  const levelLabel = document.createElement('div');
+  levelLabel.style.cssText = 'background:#1e88e5;color:#fff;padding:6px 10px;border-radius:8px;font-weight:800;font-size:13px';
 
   const target = document.createElement('div');
   target.style.cssText = 'background:#000a;color:#fff;padding:6px 12px;border-radius:8px;font-weight:700';
@@ -82,27 +86,49 @@ export function createHud(
   notYet.style.cssText = 'background:#ef6c00;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
   notYet.textContent = 'Not yet — try again!';
 
+  const levelToast = document.createElement('div');
+  levelToast.style.cssText = 'background:#1565c0;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
+
   const banner = document.createElement('div');
   banner.style.cssText = 'margin-left:auto;background:#2e7d32;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
-  banner.textContent = '🎉 You did it!';
+  banner.textContent = '🎉 You beat them all!';
 
-  bar.append(target, progWrap, toolWrap, dirWrap, sel, reset, hint, notYet, banner);
+  bar.append(levelLabel, target, progWrap, toolWrap, dirWrap, sel, reset, hint, notYet, levelToast, banner);
   parent.appendChild(bar);
 
   let lastMisses = 0;
-  let flash = 0; // frames remaining for the "Not yet" banner
+  let flash = 0;        // frames remaining for the "Not yet" banner
+  let grace = 0;        // frames after a level-up during which the "Not yet" flash is suppressed
+  let toast = 0;        // frames remaining for the "Level up!" toast
+  let lastLevel = -1;   // -1 until the first update, so a resumed save doesn't false-celebrate
   return {
     update(state: GameState) {
+      const idx = clampLevelIndex(state.levelIndex);
       let goal = '?';
       let required = 0;
       for (const b of state.buildings.values()) if (b.type === 'target') { goal = formatValue(b.target); required = b.required; break; }
       target.textContent = `Make ${goal}`;
+      levelLabel.textContent = `Level ${idx + 1}/${LEVELS.length}`;
       const pct = required > 0 ? Math.min(100, Math.round((100 * state.delivered) / required)) : 0;
       progFill.style.width = `${pct}%`;
       progText.textContent = required > 0 ? `${state.delivered}/${required}` : `${state.delivered}`;
       banner.style.display = state.status === 'won' ? 'block' : 'none';
-      if (state.misses > lastMisses) { flash = 90; lastMisses = state.misses; }
-      if (flash > 0) { flash--; notYet.style.display = 'block'; } else notYet.style.display = 'none';
+
+      // Level-up: announce the new goal, and give the still-running old factory a grace window
+      // so leftover old-value items don't immediately spam the "Not yet" flash. Machine keeps
+      // running (auto-advance). No toast on the very first update (resume) or the final win.
+      if (lastLevel >= 0 && state.levelIndex > lastLevel && state.status === 'playing') {
+        toast = 210; grace = 210;
+        levelToast.textContent = `⭐ Level ${idx + 1}! Now make ${goal}`;
+      }
+      lastLevel = state.levelIndex;
+      if (toast > 0) { toast--; levelToast.style.display = 'block'; } else levelToast.style.display = 'none';
+
+      if (grace > 0) { grace--; lastMisses = state.misses; flash = 0; notYet.style.display = 'none'; }
+      else {
+        if (state.misses > lastMisses) { flash = 90; lastMisses = state.misses; }
+        if (flash > 0) { flash--; notYet.style.display = 'block'; } else notYet.style.display = 'none';
+      }
     },
     setDir(d: Direction) { activeDir = d; paintDirs(); },
     setTool(t: Tool) { activeTool = t; paintTools(); },
