@@ -1,5 +1,5 @@
 import type { GameState, Direction } from '../sim/grid';
-import { beltAt, setBelt, nodeAt, cellKey, RIGHT_OF } from '../sim/grid';
+import { beltAt, setBelt, nodeAt, RIGHT_OF } from '../sim/grid';
 import type { MinerBuilding, OperatorBuilding } from '../sim/buildings';
 import { isBlocked, buildingAt, addBuilding, removeBuildingAt } from '../sim/buildings';
 import type { OpId } from '../content/operations';

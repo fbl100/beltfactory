@@ -2,17 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { mvpGenerator, TARGET } from './worldgen';
 
 describe('mvp world generation', () => {
-  it('places nodes 7 and 5 plus miner/operator/target in the origin chunk', () => {
+  it('places nodes 7 and 5 and a target hub in the origin chunk (machines are player-placed)', () => {
     const c = mvpGenerator(0, 0, 0);
     expect((c.nodes ?? []).map((n) => n.value).sort()).toEqual([5n, 7n]);
-    const types = (c.buildings ?? []).map((b) => b.type);
-    expect(types).toContain('miner');
-    expect(types).toContain('operator');
-    expect(types).toContain('target');
-    for (const b of c.buildings ?? []) {
-      expect(b.x).toBeGreaterThanOrEqual(0);
-      expect(b.x).toBeLessThan(16);
-    }
+    expect((c.buildings ?? []).map((b) => b.type)).toEqual(['target']);
+    for (const n of c.nodes ?? []) { expect(n.x).toBeGreaterThanOrEqual(0); expect(n.x).toBeLessThan(16); }
+    for (const b of c.buildings ?? []) { expect(b.x).toBeGreaterThanOrEqual(0); expect(b.x).toBeLessThan(16); }
   });
   it('generates empty land for every non-origin chunk', () => {
     expect(mvpGenerator(0, 1, 0)).toEqual({});

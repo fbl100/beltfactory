@@ -1,4 +1,5 @@
-import type { GameState } from '../sim/grid';
+import type { GameState, Direction } from '../sim/grid';
+import type { BuildingType } from '../sim/buildings';
 
 export interface Camera {
   x: number;    // world-cell coordinate at viewport center
@@ -13,19 +14,33 @@ export interface Theme {
   grid: number;
   belt: number;
   beltEdge: number;
-  extractor: number;
+  miner: number;
   operator: number;
-  sink: number;
+  sink: number;        // the target / hub body
+  node: number;
+  nodeText: number;
   item: number;
   itemText: number;
+  arrow: number;
+  buildingText: number;
   cornerRadius: number;
   glow: boolean;
+}
+
+// A translucent placement preview ("ghost") for the selected building tool.
+export interface Preview {
+  type: BuildingType;
+  ox: number; // anchor (top-left of the 3x3) world x
+  oy: number; // anchor world y
+  dir: Direction;
+  valid: boolean;
 }
 
 export interface Renderer {
   init(theme: Theme): Promise<void>;
   setTheme(theme: Theme): void;
   setCamera(cam: Camera): void;
+  setPreview(p: Preview | null): void;
   // alpha in [0,1]: interpolate items between previous (px,py) and current (x,y).
   draw(state: GameState, alpha: number): void;
   screenToWorld(px: number, py: number): { x: number; y: number };
