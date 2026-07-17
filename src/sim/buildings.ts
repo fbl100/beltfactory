@@ -1,10 +1,11 @@
 import type { Direction, GameState } from './grid';
-import { DELTA, DIRECTIONS, OPPOSITE, RIGHT_OF, LEFT_OF, cellKey, beltAt, splitterAt, tunnelAt } from './grid';
+import { DELTA, DIRECTIONS, OPPOSITE, RIGHT_OF, cellKey, beltAt, splitterAt, tunnelAt } from './grid';
 import type { OpId } from '../content/operations';
 
-// 3x3 rotatable buildings. Anchor = top-left cell (also the unique key); the
-// center is (ax+1, ay+1). Belts are 1x1 and live in a separate map; a single
-// derived `occupancy` index maps every footprint cell -> anchor key.
+// Rotatable buildings. Anchor = top-left cell of the bounding box (also the unique key). Miner and
+// target are 3x3 (center = ax+1,ay+1); an OPERATOR is a 1x3 bar (its center is the middle cell).
+// Belts are 1x1 and live in a separate map; a single derived `occupancy` index maps every footprint
+// cell -> anchor key. `dimsOf` is the single source of truth for a building's bounding-box size.
 export const FOOTPRINT = 3;
 
 export type BuildingType = 'miner' | 'operator' | 'target';
@@ -12,35 +13,71 @@ export type BuildingType = 'miner' | 'operator' | 'target';
 interface Base { ax: number; ay: number; dir: Direction }
 export interface MinerBuilding extends Base { type: 'miner'; value: bigint; everyTicks: number; sinceEmit: number }
 // everyTicks/sinceProduce throttle an operator's output rate (its throughput cap).
-// A pending input waiting to be paired, tagged with the side (of the operator) it arrived on.
-export interface OperatorInput { side: Direction; value: bigint }
-// Holds at most ONE pending value per input side (the 3 non-front sides), so two items from the
-// SAME belt can't pair (that produced e.g. 3×3=9 instead of 2×3=6). Ops are order-independent.
+// A pending input waiting to be paired, tagged with the tip (A/B) it arrived at.
+export interface OperatorInput { tip: 'A' | 'B'; value: bigint }
+// Holds at most ONE pending value per tip, so two items from the SAME belt can't pair (that
+// produced e.g. 3×3=9 instead of 2×3=6). A and B are interchangeable (ops are order-independent).
 export interface OperatorBuilding extends Base { type: 'operator'; op: OpId; inputs: OperatorInput[]; everyTicks: number; sinceProduce: number }
 export interface TargetBuilding extends Base { type: 'target'; target: bigint; required: number } // dir vestigial (accepts all 4 sides)
 export type Building = MinerBuilding | OperatorBuilding | TargetBuilding;
 
+// An operator's 1x3 bar lies PERPENDICULAR to its output direction: output up/down -> a horizontal
+// bar (tips left & right); output left/right -> a vertical bar (tips above & below).
+function operatorHoriz(dir: Direction): boolean {
+  return dir === 'up' || dir === 'down';
+}
+
+// Bounding-box size in cells. Miner/target are 3x3; an operator is a 1x3 bar oriented by its output.
+export function dimsOf(b: Building): { w: number; h: number } {
+  if (b.type === 'operator') return operatorHoriz(b.dir) ? { w: FOOTPRINT, h: 1 } : { w: 1, h: FOOTPRINT };
+  return { w: FOOTPRINT, h: FOOTPRINT };
+}
+
 export function centerOf(b: Building): { x: number; y: number } {
-  return { x: b.ax + 1, y: b.ay + 1 };
+  const { w, h } = dimsOf(b);
+  return { x: b.ax + ((w - 1) >> 1), y: b.ay + ((h - 1) >> 1) }; // (n-1)/2: 3 -> +1, 1 -> +0
 }
 
 export function footprintOf(b: Building): { x: number; y: number }[] {
+  const { w, h } = dimsOf(b);
   const cells: { x: number; y: number }[] = [];
-  for (let dy = 0; dy < FOOTPRINT; dy++)
-    for (let dx = 0; dx < FOOTPRINT; dx++)
+  for (let dy = 0; dy < h; dy++)
+    for (let dx = 0; dx < w; dx++)
       cells.push({ x: b.ax + dx, y: b.ay + dy });
   return cells;
 }
 
 export function coversCell(b: Building, x: number, y: number): boolean {
-  return x >= b.ax && x < b.ax + FOOTPRINT && y >= b.ay && y < b.ay + FOOTPRINT;
+  const { w, h } = dimsOf(b);
+  return x >= b.ax && x < b.ax + w && y >= b.ay && y < b.ay + h;
 }
 
-// The external belt cell just beyond the front (output) edge: where emitted items land.
-// Used by operators (single front output).
+// The external belt cell just beyond the front (facing) edge: where emitted items land. Footprint-
+// aware — one cell past the edge along `dir` (miner 3x3 -> +2 from center; operator 1x3 -> +1).
+// For an operator this is the PREFERRED output (see operatorOutCells for the fallback edge).
 export function outCell(b: Building): { x: number; y: number } {
-  const c = centerOf(b), d = DELTA[b.dir];
-  return { x: c.x + 2 * d.dx, y: c.y + 2 * d.dy };
+  const c = centerOf(b), d = DELTA[b.dir], { w, h } = dimsOf(b);
+  const along = b.dir === 'left' || b.dir === 'right' ? w : h; // footprint depth along the facing
+  const off = ((along - 1) >> 1) + 1;
+  return { x: c.x + off * d.dx, y: c.y + off * d.dy };
+}
+
+// A 1x3 operator emits from EITHER of the center cell's two exposed long edges (perpendicular to the
+// bar). Preferred = the facing (dir) side; the other is the fallback used when the front is blocked.
+export function operatorOutCells(b: OperatorBuilding): { x: number; y: number; dir: Direction }[] {
+  const c = centerOf(b), f = DELTA[b.dir], back = DELTA[OPPOSITE[b.dir]];
+  return [
+    { x: c.x + f.dx, y: c.y + f.dy, dir: b.dir },
+    { x: c.x + back.dx, y: c.y + back.dy, dir: OPPOSITE[b.dir] },
+  ];
+}
+
+// A 1x3 operator's two input tips: the bar's end cells (perpendicular to the output). ANY exposed
+// edge of a tip accepts input — the only inward edge faces the center, which items can't cross.
+// A and B are interchangeable; the labels are for legibility.
+export function operatorTips(b: OperatorBuilding): { A: { x: number; y: number }; B: { x: number; y: number } } {
+  const c = centerOf(b), p = DELTA[RIGHT_OF[b.dir]]; // one step along the bar (perpendicular to output)
+  return { A: { x: c.x + p.dx, y: c.y + p.dy }, B: { x: c.x - p.dx, y: c.y - p.dy } };
 }
 
 // A miner is a wide source: it emits from every edge cell on ALL FOUR sides — 3 cells per side,
@@ -60,24 +97,18 @@ export function minerOutputs(b: Building): { x: number; y: number; dir: Directio
 
 export interface Port { role: 'in' | 'out'; slot: number; side: Direction; dir: Direction; label?: string }
 
-// An operator's labeled ports for its facing: inputs A and B flank the single output (the front).
-// The back side is intentionally left free — a future 2-output op (e.g. a divisor emitting the
-// quotient out the front and the remainder out the back) would use it. A and B are interchangeable
-// for today's order-independent ops; the labels are for legibility and forward-compatibility.
-export function operatorSides(dir: Direction): { A: Direction; B: Direction; out: Direction; spare: Direction } {
-  return { A: LEFT_OF[dir], B: RIGHT_OF[dir], out: dir, spare: OPPOSITE[dir] };
-}
-
-// Cold path (render draws arrows + labels from this). `dir` = travel-through direction:
-// out ports flow outward along `side`; in ports flow inward (OPPOSITE[side]).
+// Cold path (render draws arrows + labels from this). `side` = the direction from the center to the
+// port cell; `dir` = travel-through direction. A 1x3 operator has two output edges (the facing side,
+// preferred, and the back side, fallback) and two input tips (A/B) perpendicular to them.
 export function portsOf(b: Building): Port[] {
   if (b.type === 'miner') return DIRECTIONS.map((s) => ({ role: 'out' as const, slot: 0, side: s, dir: s }));
   if (b.type === 'operator') {
-    const s = operatorSides(b.dir);
+    const perp = RIGHT_OF[b.dir]; // along the bar (toward tip A)
     return [
-      { role: 'out', slot: 0, side: s.out, dir: s.out },
-      { role: 'in', slot: 0, side: s.A, dir: OPPOSITE[s.A], label: 'A' },
-      { role: 'in', slot: 1, side: s.B, dir: OPPOSITE[s.B], label: 'B' },
+      { role: 'out', slot: 0, side: b.dir, dir: b.dir },
+      { role: 'out', slot: 1, side: OPPOSITE[b.dir], dir: OPPOSITE[b.dir] },
+      { role: 'in', slot: 0, side: perp, dir: OPPOSITE[perp], label: 'A' },
+      { role: 'in', slot: 1, side: OPPOSITE[perp], dir: perp, label: 'B' },
     ];
   }
   return DIRECTIONS.map((s) => ({ role: 'in' as const, slot: 0, side: s, dir: OPPOSITE[s] }));

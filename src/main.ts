@@ -214,8 +214,15 @@ async function boot() {
     if (tool === 'belt' || tool === 'splitter' || tool === 'tunnel' || !hover) {
       renderer.setPreview(null); // 1x1 tools: no 3x3 ghost
     } else {
-      const ok = tool === 'miner' ? canPlaceMiner(state, hover.x, hover.y) : canPlaceOperator(state, hover.x, hover.y);
-      renderer.setPreview({ type: tool, ox: hover.x - 1, oy: hover.y - 1, dir: placeDir, valid: ok });
+      const ok = tool === 'miner' ? canPlaceMiner(state, hover.x, hover.y) : canPlaceOperator(state, hover.x, hover.y, placeDir);
+      // Miner/target are 3x3; a 1x3 operator's bar lies perpendicular to its output dir.
+      const horizBar = tool === 'operator' && (placeDir === 'up' || placeDir === 'down');
+      const vertBar = tool === 'operator' && (placeDir === 'left' || placeDir === 'right');
+      const w = tool === 'miner' ? 3 : horizBar ? 3 : 1;
+      const h = tool === 'miner' ? 3 : vertBar ? 3 : 1;
+      const ox = hover.x - (w === 3 ? 1 : 0);
+      const oy = hover.y - (h === 3 ? 1 : 0);
+      renderer.setPreview({ type: tool, ox, oy, w, h, dir: placeDir, valid: ok });
     }
     renderer.draw(state, Math.min(acc / tickMs, 1));
     hud.update(state);

@@ -72,58 +72,72 @@ describe('tick: miner', () => {
   });
 });
 
-describe('tick: operator', () => {
-  it('combines two side inputs and emits the sum after a one-tick settle', () => {
+describe('tick: operator (1x3)', () => {
+  // dir right -> vertical bar: anchor (2,1); cells (2,1),(2,2),(2,3); center (2,2);
+  // tips (2,1)&(2,3); outputs (3,2) [facing] and (1,2) [fallback].
+  const opRight = (): OperatorBuilding => ({ type: 'operator', ax: 2, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 });
+
+  it('combines two tip inputs and emits the sum after a one-tick settle', () => {
     const s = emptyState(1);
-    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 };
-    addBuilding(s, o); // center (2,2); in edges (2,1)&(2,3); out (4,2)
-    setBelt(s, 2, 0, belt('down')); // external belt feeding the top in-port
-    setBelt(s, 2, 4, belt('up'));   // external belt feeding the bottom in-port
-    setBelt(s, 4, 2, belt('right')); // out belt
+    addBuilding(s, opRight());
+    setBelt(s, 2, 0, belt('down')); // feeds the top tip (2,1) from above
+    setBelt(s, 2, 4, belt('up'));   // feeds the bottom tip (2,3) from below
+    setBelt(s, 3, 2, belt('right')); // out belt (facing side)
     s.items.push(createItem(1, 7n, 2, 0));
     s.items.push(createItem(2, 5n, 2, 4));
-    step(s); // both items absorbed into the operator's inputs
+    step(s); // both items absorbed into the operator's tips
     expect(s.items.length).toBe(0);
     step(s); // produce() sees 2 inputs -> emits 12 on the out belt
-    expect(itemAt(s, 4, 2)?.value).toBe(12n);
+    expect(itemAt(s, 3, 2)?.value).toBe(12n);
   });
-  it('ignores the reserved back side — only the A and B inputs count', () => {
+  it('any exposed edge of a tip accepts input (side approach, not just end-on)', () => {
     const s = emptyState(1);
-    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 };
-    addBuilding(s, o); // center (2,2); dir right -> A=up (2,1), B=down (2,3), out (4,2), back=left (1,2) reserved
-    setBelt(s, 0, 2, belt('right')); // feeds the reserved back side (1,2)
-    setBelt(s, 4, 2, belt('right')); // out
-    s.items.push(createItem(1, 7n, 0, 2));
-    for (let i = 0; i < 4; i++) step(s);
-    expect((buildingAt(s, 2, 2) as OperatorBuilding).inputs.length).toBe(0); // back input not accepted
-    expect(itemAt(s, 0, 2)?.id).toBe(1); // the 7 is stuck on its belt, not consumed
+    addBuilding(s, opRight());
+    setBelt(s, 1, 1, belt('right')); // approaches the top tip (2,1) from its LEFT edge
+    setBelt(s, 3, 3, belt('left'));  // approaches the bottom tip (2,3) from its RIGHT edge
+    setBelt(s, 3, 2, belt('right')); // out
+    s.items.push(createItem(1, 4n, 1, 1));
+    s.items.push(createItem(2, 6n, 3, 3));
+    for (let i = 0; i < 3; i++) step(s);
+    expect(itemAt(s, 3, 2)?.value).toBe(10n); // 4 + 6, fed in from the sides
+  });
+  it('emits from the fallback edge when the facing output is blocked', () => {
+    const s = emptyState(1);
+    addBuilding(s, opRight());
+    setBelt(s, 2, 0, belt('down'));
+    setBelt(s, 2, 4, belt('up'));
+    setBelt(s, 1, 2, belt('left')); // ONLY the fallback edge (1,2) has a belt; facing (3,2) has none
+    s.items.push(createItem(1, 7n, 2, 0));
+    s.items.push(createItem(2, 5n, 2, 4));
+    step(s); step(s);
+    expect(itemAt(s, 1, 2)?.value).toBe(12n); // emerged from the other middle edge
   });
   it('applies the operator op (× here) to its two inputs', () => {
     const s = emptyState(1);
-    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'multiply', inputs: [], everyTicks: 1, sinceProduce: 0 };
+    const o = { ...opRight(), op: 'multiply' as const };
     addBuilding(s, o);
     setBelt(s, 2, 0, belt('down'));
     setBelt(s, 2, 4, belt('up'));
-    setBelt(s, 4, 2, belt('right'));
+    setBelt(s, 3, 2, belt('right'));
     s.items.push(createItem(1, 5n, 2, 0));
     s.items.push(createItem(2, 10n, 2, 4));
     step(s); step(s);
-    expect(itemAt(s, 4, 2)?.value).toBe(50n); // 5 × 10
+    expect(itemAt(s, 3, 2)?.value).toBe(50n); // 5 × 10
   });
-  it('holds one input per side: two items from the SAME belt never pair together', () => {
+  it('holds one input per tip: two items from the SAME belt never pair together', () => {
     const s = emptyState(1);
-    const o: OperatorBuilding = { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'multiply', inputs: [], everyTicks: 1, sinceProduce: 0 };
-    addBuilding(s, o); // center (2,2); top-in (2,1), bottom-in (2,3), out (4,2)
+    const o = { ...opRight(), op: 'multiply' as const };
+    addBuilding(s, o); // top tip (2,1), bottom tip (2,3), out (3,2)
     setBelt(s, 2, -1, belt('down')); // top feed lane (two 3s queue here)
     setBelt(s, 2, 0, belt('down'));
-    setBelt(s, 4, 2, belt('right')); // out belt
+    setBelt(s, 3, 2, belt('right')); // out belt
     s.items.push(createItem(1, 3n, 2, 0));
     s.items.push(createItem(2, 3n, 2, -1));
     for (let i = 0; i < 5; i++) step(s);
-    // only ONE 3 can occupy the top side; the second waits — a 3×3=9 must never be produced
+    // only ONE 3 can occupy the top tip; the second waits — a 3×3=9 must never be produced
     expect(s.items.every((it) => it.value !== 9n)).toBe(true);
     expect((buildingAt(s, 2, 2) as OperatorBuilding).inputs.length).toBe(1);
-    // feed a 2 on the OTHER (bottom) side -> now two different belts pair -> 2×3 = 6
+    // feed a 2 into the OTHER (bottom) tip -> now two different belts pair -> 2×3 = 6
     setBelt(s, 2, 4, belt('up'));
     s.items.push(createItem(3, 2n, 2, 4));
     for (let i = 0; i < 5; i++) step(s);
@@ -246,13 +260,13 @@ describe('tick: target / win', () => {
     expect(s.delivered).toBe(0);
     expect(s.misses).toBe(1); // only the truly-wrong 999 counts; the stale old-target value doesn't
   });
-  it('an item stepping onto the front/output edge (not an input) stops (no crash, no consume)', () => {
+  it('an item entering the center (output) cell of an operator is not consumed (no crash)', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 }); // center (2,2), front edge x=3
-    setBelt(s, 4, 1, belt('left')); // (4,1) -> front-edge (3,1): the output side, not an input
-    s.items.push(createItem(1, 3n, 4, 1));
+    addBuilding(s, { type: 'operator', ax: 1, ay: 1, dir: 'right', op: 'add', inputs: [], everyTicks: 1, sinceProduce: 0 }); // 1x3 vertical; center (1,2)
+    setBelt(s, 2, 2, belt('left')); // (2,2) -> center (1,2): an output edge, not an input tip
+    s.items.push(createItem(1, 3n, 2, 2));
     step(s);
-    expect(itemAt(s, 4, 1)?.id).toBe(1); // stayed put
+    expect(itemAt(s, 2, 2)?.id).toBe(1); // stayed put
     expect(s.items.length).toBe(1);
   });
 });

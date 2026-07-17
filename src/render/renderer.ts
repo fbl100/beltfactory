@@ -30,8 +30,10 @@ export interface Theme {
 // A translucent placement preview ("ghost") for the selected building tool.
 export interface Preview {
   type: BuildingType;
-  ox: number; // anchor (top-left of the 3x3) world x
+  ox: number; // anchor (top-left of the bounding box) world x
   oy: number; // anchor world y
+  w: number;  // bounding-box size in cells (3x3 miner/target; 1x3 operator, oriented by dir)
+  h: number;
   dir: Direction;
   valid: boolean;
 }

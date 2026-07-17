@@ -88,8 +88,19 @@ export function canPlaceMiner(state: GameState, cx: number, cy: number): boolean
   return footprintClear(state, cx, cy) && nodeAt(state, cx, cy) !== undefined;
 }
 
-export function canPlaceOperator(state: GameState, cx: number, cy: number): boolean {
-  return footprintClear(state, cx, cy);
+// A 1x3 operator centered on (cx,cy), oriented by its output dir (bar perpendicular to the output):
+// output up/down -> a horizontal bar; output left/right -> a vertical bar.
+function operatorHoriz(dir: Direction): boolean { return dir === 'up' || dir === 'down'; }
+
+export function operatorFootprintCells(cx: number, cy: number, dir: Direction): { x: number; y: number }[] {
+  const horiz = operatorHoriz(dir);
+  const cells: { x: number; y: number }[] = [];
+  for (let i = -1; i <= 1; i++) cells.push(horiz ? { x: cx + i, y: cy } : { x: cx, y: cy + i });
+  return cells;
+}
+
+export function canPlaceOperator(state: GameState, cx: number, cy: number, dir: Direction): boolean {
+  return operatorFootprintCells(cx, cy, dir).every((c) => !isBlocked(state, c.x, c.y));
 }
 
 export function placeMiner(state: GameState, cx: number, cy: number, dir: Direction, everyTicks = MINER_EVERY_TICKS): boolean {
@@ -100,8 +111,11 @@ export function placeMiner(state: GameState, cx: number, cy: number, dir: Direct
 }
 
 export function placeOperator(state: GameState, cx: number, cy: number, dir: Direction, op: OpId = 'add'): boolean {
-  if (!footprintClear(state, cx, cy)) return false;
-  const b: OperatorBuilding = { type: 'operator', ax: cx - 1, ay: cy - 1, dir, op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
+  if (!canPlaceOperator(state, cx, cy, dir)) return false;
+  // Anchor = top-left of the bounding box: a horizontal bar starts one cell left; a vertical bar one up.
+  const ax = operatorHoriz(dir) ? cx - 1 : cx;
+  const ay = operatorHoriz(dir) ? cy : cy - 1;
+  const b: OperatorBuilding = { type: 'operator', ax, ay, dir, op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
   return addBuilding(state, b);
 }
 

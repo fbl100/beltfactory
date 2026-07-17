@@ -3,7 +3,7 @@ import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt, tunnelAt } from './gri
 import type { Item } from './items';
 import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
-import { outCell, minerOutputs, inPortSlot, buildingAt, operatorSides } from './buildings';
+import { minerOutputs, inPortSlot, buildingAt, operatorTips, operatorOutCells } from './buildings';
 import { createItem } from './items';
 import { advanceLevel, isStaleTargetValue } from './progression';
 import { applyOp } from '../content/operations';
@@ -62,12 +62,14 @@ function produce(state: GameState): void {
     if (b.type !== 'operator') continue;
     b.sinceProduce++;
     if (b.inputs.length < 2 || b.sinceProduce < b.everyTicks) continue;
-    const { x, y } = outCell(b);
-    if (canEmitOnto(state, x, y)) {
-      // inputs holds one pending value per side, so [0] and [1] are always from different belts.
-      state.items.push(createItem(state.nextItemId++, applyOp(b.op, b.inputs[0].value, b.inputs[1].value), x, y));
+    // inputs holds one pending value per tip, so [0] and [1] are always from different tips.
+    // Emit from whichever middle edge has a free receiving belt (facing side preferred, back is fallback).
+    for (const o of operatorOutCells(b)) {
+      if (!canEmitOnto(state, o.x, o.y)) continue;
+      state.items.push(createItem(state.nextItemId++, applyOp(b.op, b.inputs[0].value, b.inputs[1].value), o.x, o.y));
       b.inputs.splice(0, 2);
       b.sinceProduce = 0;
+      break;
     }
   }
 }
@@ -119,16 +121,16 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
   const b = buildingAt(state, tx, ty);
   if (b) {
     if (b.type === 'operator') {
-      // Two labeled inputs (A, B) flank the output; the back side is reserved (a future 2-output
-      // op would use it). The entry side is opposite the item's travel dir. Keep at most one
-      // pending value PER side so two items from the SAME belt can't pair (which produced e.g.
-      // 3×3=9 instead of 2×3=6).
-      const sides = operatorSides(b.dir);
-      const side = OPPOSITE[dir];
-      if ((side === sides.A || side === sides.B) && !b.inputs.some((p) => p.side === side)) {
-        b.inputs.push({ side, value: it.value }); removed.add(it.id); return true;
+      // 1x3 operator: the two end cells (tips A/B) are inputs; the center's two long edges are
+      // outputs. ANY edge of a tip accepts (the only inward edge faces the center, which an item
+      // can't cross). Keep at most one pending value PER tip so two items from the SAME belt can't
+      // pair (which produced e.g. 3×3=9 instead of 2×3=6). Entering the center (output) is rejected.
+      const tips = operatorTips(b);
+      const tip = tx === tips.A.x && ty === tips.A.y ? 'A' : tx === tips.B.x && ty === tips.B.y ? 'B' : null;
+      if (tip && !b.inputs.some((p) => p.tip === tip)) {
+        b.inputs.push({ tip, value: it.value }); removed.add(it.id); return true;
       }
-      moved.add(it.id); return false; // output side, reserved back side, or this input already full
+      moved.add(it.id); return false; // center (output) cell, or that tip already full
     }
     const slot = inPortSlot(b, tx, ty);
     if (b.type === 'target' && slot >= 0) {

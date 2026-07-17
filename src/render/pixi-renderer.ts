@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { Renderer, Theme, Camera, Preview } from './renderer';
 import type { GameState, Direction } from '../sim/grid';
 import { parseKey, DELTA, DIRECTIONS, OPPOSITE } from '../sim/grid';
-import { buildingAt, portsOf, outCell, minerOutputs, FOOTPRINT } from '../sim/buildings';
+import { buildingAt, portsOf, outCell, operatorOutCells, minerOutputs, dimsOf, centerOf, FOOTPRINT } from '../sim/buildings';
 import { CHUNK_SIZE } from '../sim/world';
 import { OPERATIONS } from '../content/operations';
 import { formatValue, fitSize } from './format';
@@ -151,15 +151,16 @@ export class PixiRenderer implements Renderer {
       this.arrow(g, ccx, ccy, cs * 0.2, tun.dir, t.arrow, 1);
     }
 
-    // 3x3 buildings: body, port arrows, no-output warning, center label
+    // buildings (miner/target 3x3, operator 1x3): body, port arrows, no-output warning, center label
     for (const b of state.buildings.values()) {
       const ax = b.ax, ay = b.ay;
-      if (!(ax + 2 >= r.minX && ax <= r.maxX && ay + 2 >= r.minY && ay <= r.maxY)) continue;
-      const px = this.sx(ax) + 2, py = this.sy(ay) + 2, span = FOOTPRINT * cs - 4;
+      const { w, h } = dimsOf(b);
+      if (!(ax + w - 1 >= r.minX && ax <= r.maxX && ay + h - 1 >= r.minY && ay <= r.maxY)) continue;
+      const px = this.sx(ax) + 2, py = this.sy(ay) + 2;
       const body = b.type === 'miner' ? t.miner : b.type === 'operator' ? t.operator : t.sink;
-      g.roundRect(px, py, span, span, t.cornerRadius).fill(body);
+      g.roundRect(px, py, w * cs - 4, h * cs - 4, t.cornerRadius).fill(body);
 
-      const cxWorld = ax + 1, cyWorld = ay + 1;
+      const c = centerOf(b), cxWorld = c.x, cyWorld = c.y;
       if (b.type === 'miner') {
         // wide output: an arrow at each connected output cell, a faint pip at the rest
         for (const o of minerOutputs(b)) {
@@ -167,32 +168,37 @@ export class PixiRenderer implements Renderer {
           else g.circle(this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.06).fill({ color: t.arrow, alpha: 0.3 });
         }
       } else {
-        const hasOut = b.type === 'target' || this.carrierPresent(state, outCell(b));
+        // operator has two output edges (either can feed a belt); warn only if NEITHER does.
+        const outs = b.type === 'operator' ? operatorOutCells(b) : [outCell(b)];
+        const hasOut = b.type === 'target' || outs.some((o) => this.carrierPresent(state, o));
         for (const port of portsOf(b)) {
           const d = DELTA[port.side];
           const ex = this.sx(cxWorld + d.dx) + cs / 2, ey = this.sy(cyWorld + d.dy) + cs / 2;
           if (port.role === 'out') this.arrow(g, ex, ey, cs * 0.28, port.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
           else this.arrow(g, ex, ey, cs * 0.18, port.dir, t.arrow, 0.55);
-          // labeled ports (e.g. operator A / B inputs) — nudged toward the body so the label
+          // labeled ports (operator A / B input tips) — nudged toward the body so the label
           // doesn't sit on the port arrow. (Rudimentary; a skin pass can lay this out nicely.)
           if (port.label) label(port.label, ex - d.dx * cs * 0.3, ey - d.dy * cs * 0.3, t.buildingText, Math.max(8, Math.round(cs * 0.22)));
         }
       }
 
+      // Operator's center cell is 1x1, so it shows just the op symbol (A/B live at the tips).
       const text = b.type === 'miner' ? formatValue(b.value)
-        : b.type === 'operator' ? `A${OPERATIONS[b.op]?.symbol ?? '?'}B` // e.g. "A×B" — the operation, Beltmatic-style
+        : b.type === 'operator' ? (OPERATIONS[b.op]?.symbol ?? '?')
         : formatValue(b.target);
+      const fitW = (b.type === 'operator' ? 1 : FOOTPRINT) * cs;
       const centerPx = this.sx(cxWorld) + cs / 2, centerPy = this.sy(cyWorld) + cs / 2;
-      label(text, centerPx, centerPy, t.buildingText, fitSize(text, FOOTPRINT * cs, Math.round(cs * 0.9)));
+      label(text, centerPx, centerPy, t.buildingText, fitSize(text, fitW, Math.round(cs * 0.9)));
     }
 
     // placement ghost (building tools only)
     if (this.preview) {
       const p = this.preview;
-      const px = this.sx(p.ox) + 2, py = this.sy(p.oy) + 2, span = FOOTPRINT * cs - 4;
+      const px = this.sx(p.ox) + 2, py = this.sy(p.oy) + 2;
       const tint = p.valid ? 0x33cc66 : WARN;
-      g.roundRect(px, py, span, span, t.cornerRadius).fill({ color: tint, alpha: 0.35 });
-      this.arrow(g, this.sx(p.ox + 1 + DELTA[p.dir].dx) + cs / 2, this.sy(p.oy + 1 + DELTA[p.dir].dy) + cs / 2, cs * 0.28, p.dir, tint, 0.8);
+      g.roundRect(px, py, p.w * cs - 4, p.h * cs - 4, t.cornerRadius).fill({ color: tint, alpha: 0.35 });
+      const gcx = p.ox + (p.w - 1) / 2, gcy = p.oy + (p.h - 1) / 2; // bounding-box center
+      this.arrow(g, this.sx(gcx + DELTA[p.dir].dx) + cs / 2, this.sy(gcy + DELTA[p.dir].dy) + cs / 2, cs * 0.28, p.dir, tint, 0.8);
     }
 
     // items (interpolated) under labels

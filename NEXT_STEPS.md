@@ -13,7 +13,7 @@ Shipped this stretch (all browser-verified):
 - **Multi-target progression** — filling the bar auto-advances the same factory; save v5.
 - **− / × / ÷ operators** as editable, level-gated data (order-independent; no negatives/fractions).
 - **Prime Foundry ladder** — deposits are primes, targets are composites you build by multiplying: `6=2×3 → 12=2×2×3 → 21=2×3×3+3 → 30=2×3×5 → 42=2×3×7 → 210=2×3×5×7`. Stays on {2,3} for the first three levels.
-- **Miners emit on all 4 sides**; **operators have labeled ports** — `A` and `B` inputs flanking the front output (renders `A×B`), with the **back side reserved for a future 2nd output**.
+- **Miners emit on all 4 sides**; **operators are a 1×3 bar** — `A`/`B` input tips at the two ends (any exposed edge accepts) and the center outputs from either long edge (facing side preferred, the other a fallback).
 - **Pan/zoom** — trackpad two-finger scroll pans, pinch zooms; space-drag / middle-drag pan; `+`/`−` zoom; arrows pan. HUD direction buttons removed.
 - **Bug fixed** — operator no longer pairs two items from the same belt (was `3×3=9`).
 
@@ -23,13 +23,13 @@ Shipped this stretch (all browser-verified):
 
 ## Immediate next step: quotient + remainder divisor
 
-The operator's reserved back side was built for exactly this. A divisor would be the first **2-output** operator and the first **ordered** one.
+A divisor would be the first **2-output** operator and the first **ordered** one. The 1×3 reshape actually helps: the operator's center already exposes **two output edges** — today they emit the same value (one is a fallback), but a divisor would make them emit **different** values.
 
 **Design (has one real fork — flagged below):**
-- Ports: `A` (dividend) and `B` (divisor) inputs on the two flank sides; **quotient** out the front; **remainder** out the reserved back side.
+- Ports: `A` (dividend) and `B` (divisor) input tips at the two ends; **quotient** out one center edge, **remainder** out the other. `operatorOutCells()` already returns both edges — split them by role instead of preferring one.
 - Compute: `q = floor(A / B)`, `r = A − q·B` (guard `B = 0`).
-- This is **order-dependent** (A÷B ≠ B÷A), unlike today's order-independent ops — so the A/B labels finally carry real meaning. `OperatorInput` already stores `side`, so we can read A vs B by side.
-- Emit two items per produce: quotient at `outCell` (front), remainder at the back cell. `produce()` and the port/render model need to support a second output (the `label` field + `operatorSides().spare` are already in place).
+- This is **order-dependent** (A÷B ≠ B÷A), unlike today's order-independent ops — so the A/B tip labels finally carry real meaning. `OperatorInput` stores `tip`, so we can read A vs B directly.
+- Emit two items per produce: quotient at one output edge, remainder at the other. `produce()` and the port/render model need to support two *distinct* outputs (the `label` field is already in place; give the two `out` ports distinct roles).
 - Kid-facing: teaches "how many whole times B fits into A, and what's left over." Pairs with the "remainder crumbs" idea in the design doc — side-orders could ask for the leftovers.
 
 **The fork to confirm before building:** ordered inputs mean the player must route the dividend to `A` and divisor to `B` (getting it backwards gives a different answer). That's a real difficulty bump for a 9-year-old. Options: (a) full ordered divisor as above; (b) keep it gentle and only surface remainder as a bonus output on the existing order-independent ÷. Worth a quick decision first.
@@ -62,4 +62,4 @@ npm run dev         # vite dev server + tsx server (hot reload)
 #             then open http://localhost:3000  (login kid / apples)
 ```
 
-Key files: `src/content/levels.ts` (the ladder — tune here most), `src/content/operations.ts` (op semantics), `src/sim/buildings.ts` (3×3 geometry + `operatorSides`), `src/sim/tick.ts` (the sim loop), `src/sim/progression.ts` (level advance), `src/render/pixi-renderer.ts` (rendering), `src/ui/hud.ts` (HUD).
+Key files: `src/content/levels.ts` (the ladder — tune here most), `src/content/operations.ts` (op semantics), `src/sim/buildings.ts` (per-type geometry: `dimsOf` + `operatorTips`/`operatorOutCells`), `src/sim/tick.ts` (the sim loop), `src/sim/progression.ts` (level advance), `src/render/pixi-renderer.ts` (rendering), `src/ui/hud.ts` (HUD).

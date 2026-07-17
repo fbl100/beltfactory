@@ -20,15 +20,15 @@ import { serialize, deserialize } from './sim/save';
 function build(s: GameState): void {
   placeMiner(s, 2, 2, 'right');                 // on the 2 node -> out (4,2)
   placeMiner(s, 2, 12, 'right');                // on the 3 node -> out (4,12)
-  placeOperator(s, 8, 5, 'right', 'multiply');  // center (8,5); ins (8,4)/(8,6); out (10,5)
-  // 2-line: (4,2) across then down into the operator top-in (8,4)
+  placeOperator(s, 8, 5, 'right', 'multiply');  // 1x3 vertical: center (8,5); tips (8,4)/(8,6); out (9,5)
+  // 2-line: (4,2) across then down into the operator top tip (8,4)
   paintBeltLine(s, 4, 2, 8, 2, 'right');
   paintBeltLine(s, 8, 2, 8, 3, 'down');
-  // 3-line: (4,12) across then up into the operator bottom-in (8,6)
+  // 3-line: (4,12) across then up into the operator bottom tip (8,6)
   paintBeltLine(s, 4, 12, 8, 12, 'right');
   paintBeltLine(s, 8, 12, 8, 7, 'up');
-  // product: operator out (10,5) -> target left-in (12,5)
-  paintBeltLine(s, 10, 5, 11, 5, 'right');
+  // product: operator out (9,5) -> target left-in (12,5)
+  paintBeltLine(s, 9, 5, 11, 5, 'right');
 }
 
 function runUntilLevel(s: GameState, level: number, maxTicks = 2000): number {

@@ -14,7 +14,7 @@ function sample() {
   s.tunnels.set(cellKey(9, 0), { type: 'tunnel', dir: 'right', role: 'out' });
   s.nodes.set(cellKey(2, 2), { x: 2, y: 2, value: 7n });
   addBuilding(s, { type: 'miner', ax: 1, ay: 1, dir: 'right', value: 7n, everyTicks: 5, sinceEmit: 2 });
-  addBuilding(s, { type: 'operator', ax: 7, ay: 4, dir: 'right', op: 'add', inputs: [{ side: 'up', value: 7n }], everyTicks: 20, sinceProduce: 3 });
+  addBuilding(s, { type: 'operator', ax: 7, ay: 4, dir: 'right', op: 'add', inputs: [{ tip: 'A', value: 7n }], everyTicks: 20, sinceProduce: 3 });
   addBuilding(s, { type: 'target', ax: 12, ay: 4, dir: 'right', target: 30n, required: 8 });
   s.items.push(createItem(1, 9999999999n, 4, 2));
   return s;
@@ -50,7 +50,7 @@ describe('save', () => {
     expect(r.items[0].value).toBe(9999999999n);
     // occupancy rebuilt: a footprint cell resolves to its building
     expect(buildingAt(r, 2, 2)?.type).toBe('miner'); // miner anchor (1,1) covers (2,2)
-    expect(r.occupancy.size).toBe(27); // 3 buildings * 9 cells
+    expect(r.occupancy.size).toBe(21); // miner 9 + operator 3 (1x3) + target 9
   });
   it('stamps the current save version', () => {
     expect(JSON.parse(serialize(sample())).version).toBe(SAVE_VERSION);

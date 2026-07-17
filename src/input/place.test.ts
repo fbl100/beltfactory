@@ -22,11 +22,11 @@ describe('input.belts (footprint-aware)', () => {
   });
   it('does not paint over a building footprint', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'operator', ax: 2, ay: -1, dir: 'right', op: 'add', inputs: [], everyTicks: 20, sinceProduce: 0 }); // covers x2..4, y-1..1
+    addBuilding(s, { type: 'operator', ax: 2, ay: -1, dir: 'right', op: 'add', inputs: [], everyTicks: 20, sinceProduce: 0 }); // 1x3 vertical: (2,-1),(2,0),(2,1)
     paintBeltLine(s, 0, 0, 5, 0, 'right');
     expect(beltAt(s, 1, 0)).toEqual({ type: 'belt', dir: 'right' });
-    expect(beltAt(s, 2, 0)).toBeUndefined(); // building cell — skipped
-    expect(beltAt(s, 3, 0)).toBeUndefined();
+    expect(beltAt(s, 2, 0)).toBeUndefined(); // the one building cell on this row — skipped
+    expect(beltAt(s, 3, 0)).toEqual({ type: 'belt', dir: 'right' }); // no longer covered (1x3, not 3x3)
     expect(beltAt(s, 5, 0)).toEqual({ type: 'belt', dir: 'right' });
   });
   it('removeCell drops a stranded item', () => {
@@ -63,9 +63,9 @@ describe('input.buildings', () => {
   });
   it('placeOperator rejects on overlap', () => {
     const s = emptyState(1);
-    expect(canPlaceOperator(s, 5, 5)).toBe(true);
-    expect(placeOperator(s, 5, 5, 'right')).toBe(true);
-    expect(placeOperator(s, 6, 6, 'right')).toBe(false); // overlaps the first
+    expect(canPlaceOperator(s, 5, 5, 'right')).toBe(true);
+    expect(placeOperator(s, 5, 5, 'right')).toBe(true); // 1x3 vertical: (5,4),(5,5),(5,6)
+    expect(placeOperator(s, 5, 7, 'right')).toBe(false); // would re-cover (5,6)
   });
 });
 
@@ -123,8 +123,8 @@ describe('input.erase', () => {
   });
   it('erases a whole building from any footprint cell', () => {
     const s = emptyState(1);
-    placeOperator(s, 5, 5, 'right'); // anchor (4,4)
-    expect(eraseAt(s, 6, 6)).toBe(true); // non-anchor footprint cell
+    placeOperator(s, 5, 5, 'right'); // 1x3 vertical: (5,4),(5,5),(5,6)
+    expect(eraseAt(s, 5, 6)).toBe(true); // non-anchor footprint cell
     expect(buildingAt(s, 5, 5)).toBeUndefined();
   });
   it('refuses to erase the target', () => {

@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import { emptyState, cellKey } from './grid';
 import type { Direction } from './grid';
 import {
-  centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf, operatorSides,
+  centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf,
+  dimsOf, operatorTips, operatorOutCells,
   addBuilding, removeBuildingAt, buildingAt, isBlocked, rebuildOccupancy,
 } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
@@ -41,11 +42,27 @@ describe('building geometry', () => {
     expect(outs.filter((o) => o.dir === 'left').map((o) => `${o.x},${o.y}`).sort()).toEqual(['-1,0', '-1,1', '-1,2']); // back side now emits too
     expect(new Set(outs.map((o) => `${o.x},${o.y}`)).size).toBe(12); // all distinct
   });
-  it('operator: A/B inputs flank the output; back reserved; inPortSlot unused for operators', () => {
-    const b = op(0, 0, 'right'); // center (1,1); dir right
-    expect(operatorSides('right')).toEqual({ A: 'up', B: 'down', out: 'right', spare: 'left' });
-    expect(outCell(b)).toEqual({ x: 3, y: 1 }); // output out the front
-    expect(inPortSlot(b, 1, 0)).toBe(-1); // operators use side-based delivery (tick), not inPortSlot
+  it('operator (1x3, dir right -> vertical bar): tips are inputs, center emits from either long edge', () => {
+    const b = op(0, 0, 'right'); // vertical bar: cells (0,0),(0,1),(0,2); center (0,1)
+    expect(dimsOf(b)).toEqual({ w: 1, h: 3 });
+    expect(centerOf(b)).toEqual({ x: 0, y: 1 });
+    expect(footprintOf(b).length).toBe(3);
+    expect(coversCell(b, 0, 2)).toBe(true);
+    expect(coversCell(b, 1, 1)).toBe(false); // 1x3, not 3x3
+    const tips = operatorTips(b);
+    expect([tips.A, tips.B].map((p) => `${p.x},${p.y}`).sort()).toEqual(['0,0', '0,2']);
+    expect(outCell(b)).toEqual({ x: 1, y: 1 }); // preferred output = the facing (right) side
+    expect(operatorOutCells(b).map((o) => `${o.x},${o.y}`).sort()).toEqual(['-1,1', '1,1']); // either long edge
+    expect(inPortSlot(b, 0, 0)).toBe(-1); // operators use tip delivery (tick), not inPortSlot
+  });
+  it('operator bar orients perpendicular to the output (dir up -> horizontal bar)', () => {
+    const b = op(0, 0, 'up'); // horizontal bar: cells (0,0),(1,0),(2,0); center (1,0)
+    expect(dimsOf(b)).toEqual({ w: 3, h: 1 });
+    expect(centerOf(b)).toEqual({ x: 1, y: 0 });
+    const tips = operatorTips(b);
+    expect([tips.A, tips.B].map((p) => `${p.x},${p.y}`).sort()).toEqual(['0,0', '2,0']);
+    expect(outCell(b)).toEqual({ x: 1, y: -1 }); // facing (up) side
+    expect(operatorOutCells(b).map((o) => `${o.x},${o.y}`).sort()).toEqual(['1,-1', '1,1']);
   });
   it('target accepts on all four edges but not corners', () => {
     const b = target(0, 0, 'right'); // center (1,1)
@@ -55,37 +72,37 @@ describe('building geometry', () => {
     expect(inPortSlot(b, 1, 2)).toBe(0);
     expect(inPortSlot(b, 0, 0)).toBe(-1);
   });
-  it('portsOf: miner 4 out; operator A/B in + 1 out; target 4 in', () => {
+  it('portsOf: miner 4 out; operator 2 tips in + 2 edges out; target 4 in', () => {
     expect(portsOf(miner(0, 0, 'right')).filter((p) => p.role === 'out').length).toBe(4);
     const ports = portsOf(op(0, 0, 'right'));
     const ins = ports.filter((p) => p.role === 'in');
     expect(ins.length).toBe(2);
-    expect(ins.map((p) => p.label).sort()).toEqual(['A', 'B']); // labeled input ports
-    expect(ports.filter((p) => p.role === 'out').length).toBe(1);
+    expect(ins.map((p) => p.label).sort()).toEqual(['A', 'B']); // labeled input tips
+    expect(ports.filter((p) => p.role === 'out').length).toBe(2); // both middle edges
     expect(portsOf(target(0, 0, 'right')).filter((p) => p.role === 'in').length).toBe(4);
   });
 });
 
 describe('building occupancy', () => {
-  it('adds a building and indexes all nine cells', () => {
+  it('adds a building and indexes its footprint cells', () => {
     const s = emptyState(1);
-    expect(addBuilding(s, op(0, 0, 'right'))).toBe(true);
+    expect(addBuilding(s, op(0, 0, 'right'))).toBe(true); // 1x3 vertical: (0,0),(0,1),(0,2)
     expect(buildingAt(s, 0, 0)?.type).toBe('operator');
-    expect(buildingAt(s, 2, 2)?.type).toBe('operator');
-    expect(buildingAt(s, 3, 3)).toBeUndefined();
-    expect(isBlocked(s, 1, 1)).toBe(true);
+    expect(buildingAt(s, 0, 2)?.type).toBe('operator');
+    expect(buildingAt(s, 1, 1)).toBeUndefined(); // not part of the 1x3
+    expect(isBlocked(s, 0, 1)).toBe(true);
     expect(isBlocked(s, 5, 5)).toBe(false);
   });
   it('rejects an overlapping building', () => {
     const s = emptyState(1);
-    expect(addBuilding(s, op(0, 0, 'right'))).toBe(true);
-    expect(addBuilding(s, op(2, 2, 'right'))).toBe(false); // overlaps at (2,2)
+    expect(addBuilding(s, op(0, 0, 'right'))).toBe(true); // (0,0),(0,1),(0,2)
+    expect(addBuilding(s, op(0, 2, 'right'))).toBe(false); // would re-cover (0,2)
     expect(s.buildings.size).toBe(1);
   });
   it('removes a building from any footprint cell', () => {
     const s = emptyState(1);
     addBuilding(s, op(0, 0, 'right'));
-    expect(removeBuildingAt(s, 2, 2)).toBe(true); // non-anchor cell
+    expect(removeBuildingAt(s, 0, 2)).toBe(true); // non-anchor cell
     expect(buildingAt(s, 0, 0)).toBeUndefined();
     expect(s.buildings.size).toBe(0);
     expect(s.occupancy.size).toBe(0);
@@ -95,8 +112,8 @@ describe('building occupancy', () => {
     s.buildings.set(cellKey(0, 0), op(0, 0, 'right'));
     s.buildings.set(cellKey(5, 5), miner(5, 5, 'right'));
     rebuildOccupancy(s);
-    expect(buildingAt(s, 1, 1)?.type).toBe('operator');
+    expect(buildingAt(s, 0, 2)?.type).toBe('operator');
     expect(buildingAt(s, 6, 6)?.type).toBe('miner');
-    expect(s.occupancy.size).toBe(18);
+    expect(s.occupancy.size).toBe(12); // 3 (operator 1x3) + 9 (miner 3x3)
   });
 });
