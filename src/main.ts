@@ -57,11 +57,12 @@ async function boot() {
   let tool: Tool = 'belt';
   let hover: { x: number; y: number } | null = null;
   let pendingTunnel: { x: number; y: number } | null = null; // entrance awaiting its exit
+  let beltAnchor: { x: number; y: number } | null = null;    // first click of a belt segment
   const hud = createHud(
     parent,
     (t) => { theme = t; renderer.setTheme(t); },
     (d) => { placeDir = d; },
-    (tl) => { tool = tl; pendingTunnel = null; },
+    (tl) => { tool = tl; pendingTunnel = null; beltAnchor = null; },
     () => {
       if (!confirm('Start this level over? This clears everything you built.')) return;
       resetGame(state, Date.now() >>> 0, mvpGenerator);
@@ -77,12 +78,20 @@ async function boot() {
   };
 
   // Belts drag-to-paint; buildings are single centered clicks; right-drag erases.
+  // Belts support press-and-drag AND click-start / click-end: after one click, a second
+  // click paints an oriented line to it. Other tools are single clicks; right-drag erases.
   let paintMode: 'place' | 'erase' | null = null;
   let lastCell: { x: number; y: number } | null = null;
+  let downCell: { x: number; y: number } | null = null;
+  let anchorAtDown: { x: number; y: number } | null = null;
+  let dragMoved = false;
   canvas.addEventListener('mousedown', (e) => {
     const c = cellOf(e);
-    if (e.button === 2) { paintMode = 'erase'; eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; }
-    else if (tool === 'belt') { paintMode = 'place'; paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir); lastCell = c; }
+    if (e.button === 2) { paintMode = 'erase'; beltAnchor = null; eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; }
+    else if (tool === 'belt') {
+      paintMode = 'place'; downCell = c; anchorAtDown = beltAnchor; dragMoved = false; lastCell = c;
+      paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir); // immediate single-belt feedback
+    }
     else if (tool === 'miner') { placeMiner(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
     else if (tool === 'operator') { placeOperator(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
     else if (tool === 'splitter') { placeSplitter(state, c.x, c.y, placeDir); paintMode = null; lastCell = null; }
@@ -98,7 +107,7 @@ async function boot() {
       const ahead = d.dx !== 0
         ? dy === 0 && Math.sign(dx) === Math.sign(d.dx) && Math.abs(dx) >= 1 && Math.abs(dx) <= TUNNEL_REACH
         : dx === 0 && Math.sign(dy) === Math.sign(d.dy) && Math.abs(dy) >= 1 && Math.abs(dy) <= TUNNEL_REACH;
-      if (ahead && placeTunnel(state, c.x, c.y, placeDir, 'out')) { pendingTunnel = null; return; }
+      if (ahead && placeTunnel(state, c.x, c.y, placeDir, 'out')) { pendingTunnel = null; beltAnchor = null; return; }
     }
     if (placeTunnel(state, c.x, c.y, placeDir, 'in')) pendingTunnel = c;
   }
@@ -106,11 +115,25 @@ async function boot() {
     const c = cellOf(e); hover = c;
     if (!paintMode || !lastCell) return;
     if (c.x === lastCell.x && c.y === lastCell.y) return;
+    dragMoved = true;
     if (paintMode === 'erase') eraseLine(state, lastCell.x, lastCell.y, c.x, c.y);
     else paintBeltLine(state, lastCell.x, lastCell.y, c.x, c.y, placeDir);
     lastCell = c; dirty = true;
   });
-  const endPaint = () => { paintMode = null; lastCell = null; };
+  const endPaint = () => {
+    if (paintMode === 'place' && tool === 'belt' && downCell) {
+      if (dragMoved) {
+        beltAnchor = null; // a drag is a complete line
+      } else if (anchorAtDown && (anchorAtDown.x !== downCell.x || anchorAtDown.y !== downCell.y)) {
+        paintBeltLine(state, anchorAtDown.x, anchorAtDown.y, downCell.x, downCell.y, placeDir); // click1 -> click2
+        beltAnchor = null; // segment complete
+        dirty = true;
+      } else {
+        beltAnchor = downCell; // first click; anchor here for the next click
+      }
+    }
+    paintMode = null; lastCell = null; downCell = null; dragMoved = false;
+  };
   window.addEventListener('mouseup', endPaint);
   canvas.addEventListener('mouseleave', () => { endPaint(); hover = null; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -119,12 +142,12 @@ async function boot() {
     renderer.setCamera(cam); e.preventDefault();
   }, { passive: false });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; hud.setDir(placeDir); pendingTunnel = null; return; }
-    if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); pendingTunnel = null; return; }
-    if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); pendingTunnel = null; return; }
-    if (e.key === '3') { tool = 'operator'; hud.setTool('operator'); pendingTunnel = null; return; }
-    if (e.key === '4') { tool = 'splitter'; hud.setTool('splitter'); pendingTunnel = null; return; }
-    if (e.key === '5') { tool = 'tunnel'; hud.setTool('tunnel'); pendingTunnel = null; return; }
+    if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; hud.setDir(placeDir); pendingTunnel = null; beltAnchor = null; return; }
+    if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); pendingTunnel = null; beltAnchor = null; return; }
+    if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); pendingTunnel = null; beltAnchor = null; return; }
+    if (e.key === '3') { tool = 'operator'; hud.setTool('operator'); pendingTunnel = null; beltAnchor = null; return; }
+    if (e.key === '4') { tool = 'splitter'; hud.setTool('splitter'); pendingTunnel = null; beltAnchor = null; return; }
+    if (e.key === '5') { tool = 'tunnel'; hud.setTool('tunnel'); pendingTunnel = null; beltAnchor = null; return; }
     const pan: Record<string, [number, number]> = {
       ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
     };
