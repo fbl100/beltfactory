@@ -2,7 +2,7 @@ import type { Theme } from '../render/renderer';
 import { THEMES } from '../render/themes';
 import { formatValue } from '../render/format';
 import type { GameState } from '../sim/grid';
-import { LEVELS, clampLevelIndex, opsForLevel } from '../content/levels';
+import { LEVELS, ENDLESS_START, opsForLevel } from '../content/levels';
 import { ALL_OPS, OPERATIONS } from '../content/operations';
 import type { OpId } from '../content/operations';
 
@@ -116,12 +116,13 @@ export function createHud(
   let lastLevel = -1;   // -1 until the first update, so a resumed save doesn't false-celebrate
   return {
     update(state: GameState) {
-      const idx = clampLevelIndex(state.levelIndex);
+      const idx = Math.max(0, Math.trunc(state.levelIndex));
+      const isEndless = idx >= ENDLESS_START;
       let goal = '?';
       let required = 0;
       for (const b of state.buildings.values()) if (b.type === 'target') { goal = formatValue(b.target); required = b.required; break; }
       target.textContent = `Make ${goal}`;
-      levelLabel.textContent = `Level ${idx + 1}/${LEVELS.length}`;
+      levelLabel.textContent = isEndless ? `Level ${idx + 1} · ∞` : `Level ${idx + 1}/${LEVELS.length}`;
       // show only the operator types unlocked at this level; fall back if the active one locked
       const availOps = opsForLevel(idx);
       for (const op of ALL_OPS) opBtns[op].style.display = availOps.includes(op) ? 'block' : 'none';
@@ -137,7 +138,9 @@ export function createHud(
       // running (auto-advance). No toast on the very first update (resume) or the final win.
       if (lastLevel >= 0 && state.levelIndex > lastLevel && state.status === 'playing') {
         toast = 210; grace = 210;
-        levelToast.textContent = `⭐ Level ${idx + 1}! Now make ${goal}`;
+        levelToast.textContent = idx === ENDLESS_START
+          ? `♾️ Endless mode! Keep going — make ${goal}` // first level past the campaign
+          : `⭐ Level ${idx + 1}! Now make ${goal}`;
       }
       lastLevel = state.levelIndex;
       if (toast > 0) { toast--; levelToast.style.display = 'block'; } else levelToast.style.display = 'none';

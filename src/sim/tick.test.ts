@@ -6,7 +6,7 @@ import type { BeltCell } from './entities';
 import { createItem } from './items';
 import { addBuilding, buildingAt } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
-import { LEVELS } from '../content/levels';
+import { LEVELS, levelAt } from '../content/levels';
 
 const belt = (dir: Direction): BeltCell => ({ type: 'belt', dir });
 
@@ -204,9 +204,9 @@ describe('tick: tunnel', () => {
 });
 
 describe('tick: target / win', () => {
-  it('counts each correct delivery and wins at the required count on the final level', () => {
+  it('completing the last campaign level advances into endless mode (never "wins")', () => {
     const s = emptyState(1);
-    s.levelIndex = LEVELS.length - 1; // final level: filling the bar wins the whole game
+    s.levelIndex = LEVELS.length - 1; // last authored level — clearing it flips into endless, not a win
     const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 };
     addBuilding(s, t); // center (1,1); accepts on all 4 edges (left edge = (0,1))
     setBelt(s, -1, 1, belt('right')); // feeds the left edge (0,1)
@@ -216,8 +216,10 @@ describe('tick: target / win', () => {
     expect(s.status).toBe('playing'); // 1 of 2
     s.items.push(createItem(2, 9n, -1, 1));
     step(s);
-    expect(s.delivered).toBe(2);
-    expect(s.status).toBe('won'); // reached the required count
+    expect(s.status).toBe('playing');                              // endless: there is no win state
+    expect(s.levelIndex).toBe(LEVELS.length);                      // advanced into the first endless level
+    expect(t.target).toBe(levelAt(LEVELS.length, s.seed).target);  // hub retargeted to the generated goal
+    expect(s.delivered).toBe(0);                                   // bar reset for the new endless level
   });
 
   it('reaching the required count on a non-final level advances the goal instead of winning', () => {

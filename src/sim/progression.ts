@@ -2,12 +2,12 @@ import type { GameState } from './grid';
 import { cellKey } from './grid';
 import type { Building } from './buildings';
 import { isBlocked } from './buildings';
-import { LEVELS, clampLevelIndex } from '../content/levels';
+import { levelAt } from '../content/levels';
 import type { GrantNode } from '../content/levels';
 
-// Progression is pure sim state: LEVELS[state.levelIndex] is the single source of truth for
-// the current goal, and the target building's target/required are kept in sync with it. No
-// rendering deps. Deterministic given the same inputs.
+// Progression is pure sim state: levelAt(state.levelIndex, state.seed) is the single source of truth
+// for the current goal (authored for the campaign, deterministically generated in endless mode), and
+// the target building's target/required are kept in sync with it. No rendering deps. Deterministic.
 
 export function targetHub(state: GameState): Building | undefined {
   for (const b of state.buildings.values()) if (b.type === 'target') return b;
@@ -17,51 +17,45 @@ export function targetHub(state: GameState): Building | undefined {
 // A delivered value that was a valid target on an EARLIER level is stale leftover output from
 // the pre-advance factory (e.g. still making 12 after the goal became 20) — not a mistake, so
 // it shouldn't trip the "Not yet" feedback. A genuinely wrong number still counts as a miss.
+// Only a recent window of past levels matters (older leftovers have long since drained).
 export function isStaleTargetValue(state: GameState, value: bigint): boolean {
-  const upto = Math.min(state.levelIndex, LEVELS.length);
-  for (let i = 0; i < upto; i++) if (LEVELS[i].target === value) return true;
+  const idx = Math.max(0, Math.trunc(state.levelIndex));
+  for (let i = Math.max(0, idx - 15); i < idx; i++) if (levelAt(i, state.seed).target === value) return true;
   return false;
 }
 
-// Point the target hub at LEVELS[levelIndex] (clamping the index first). Returns the hub.
+// Point the target hub at the current level's goal. levelAt is authored for the campaign and
+// deterministically generated in endless mode — NO upper clamp, so levels grow without bound.
 export function syncTargetToLevel(state: GameState): Building | undefined {
-  state.levelIndex = clampLevelIndex(state.levelIndex);
-  const lvl = LEVELS[state.levelIndex];
+  if (!Number.isFinite(state.levelIndex) || state.levelIndex < 0) state.levelIndex = 0;
+  state.levelIndex = Math.trunc(state.levelIndex);
+  const lvl = levelAt(state.levelIndex, state.seed);
   const hub = targetHub(state);
   if (hub && hub.type === 'target') { hub.target = lvl.target; hub.required = lvl.required; }
   return hub;
 }
 
-// Make a loaded/migrated save internally consistent with the current LEVELS data. LEVELS is
-// the source of truth: clamp the index, re-derive the hub goal, and enforce the invariant
-// that 'won' is only valid once the FINAL level is cleared — an older/pre-progression save
-// that was 'won' at an earlier level rolls into that level as playing (the built factory is
-// kept). A save carrying more deliveries than the new level needs snaps back to a clean 0.
+// Make a loaded/migrated save internally consistent. Re-derive the hub goal from levelAt (which
+// reproduces the same generated target given seed + index). Endless mode never "wins", so an old
+// save stuck at 'won' rolls back into play at its level (its built factory is kept). A save carrying
+// more deliveries than the level needs snaps back to a clean 0.
 export function reconcileLevel(state: GameState): void {
   if (typeof state.delivered !== 'number' || state.delivered < 0) state.delivered = 0;
-  const hub = syncTargetToLevel(state); // clamps levelIndex and re-points the hub at LEVELS[levelIndex]
-  const isFinal = state.levelIndex >= LEVELS.length - 1;
-  if (state.status === 'won' && !isFinal) { state.status = 'playing'; state.delivered = 0; }
-  // A migrated/edited save can carry a full-or-over bar for the new (smaller) level; snap it to a
-  // clean start so it doesn't instant-advance on the first tick (checkLevel advances at >=).
-  if (hub && hub.type === 'target' && state.status === 'playing' && state.delivered >= hub.required) {
-    state.delivered = 0;
-  }
+  const hub = syncTargetToLevel(state); // re-points the hub at levelAt(levelIndex, seed)
+  if (state.status === 'won') state.status = 'playing';
+  // A migrated/edited save can carry a full-or-over bar; snap it to a clean start so it doesn't
+  // instant-advance on the first tick (checkLevel advances at >=).
+  if (hub && hub.type === 'target' && state.delivered >= hub.required) state.delivered = 0;
 }
 
-// Called once per tick (AFTER move() settles) when the delivery bar is full. Advances the
-// SAME factory to the next level — bumps the goal, resets the count, drops the next number
-// deposit — or, on the final level, wins the whole game (idempotent). Kept out of the move
-// loop so the target value stays stable for the whole tick (no mid-pass mis-crediting).
+// Called once per tick (AFTER move() settles) when the delivery bar is full. Advances the SAME
+// factory to the next level — bumps the goal, resets the count, drops any new deposit. Endless:
+// there is always a next level (levelAt generates one), so the game never "wins", it just keeps
+// going. Kept out of the move loop so the target value stays stable for the whole tick.
 export function advanceLevel(state: GameState, hub: Building): void {
-  if (state.status === 'won' || hub.type !== 'target') return;
-  const next = LEVELS[state.levelIndex + 1];
-  if (!next) {                          // final level cleared -> the whole game is won
-    state.delivered = hub.required;     // hold the bar at 100%
-    state.status = 'won';
-    return;
-  }
+  if (hub.type !== 'target') return;
   state.levelIndex++;
+  const next = levelAt(state.levelIndex, state.seed);
   hub.target = next.target;
   hub.required = next.required;
   state.delivered = 0;

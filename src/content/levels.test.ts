@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LEVELS, clampLevelIndex, opsForLevel } from './levels';
+import { LEVELS, ENDLESS_START, levelAt, clampLevelIndex, opsForLevel } from './levels';
 import { ALL_OPS } from './operations';
 import type { OpId } from './operations';
 
@@ -134,5 +134,77 @@ describe('content/levels', () => {
     expect(clampLevelIndex(999)).toBe(LEVELS.length - 1);
     expect(clampLevelIndex(NaN)).toBe(0);
     expect(clampLevelIndex(2.7)).toBe(2);
+  });
+});
+
+describe('content/levels: endless generator', () => {
+  const SEEDS = [1, 42, 7, 123456, 2 ** 31];
+  const DEPOSITS = [2n, 3n, 5n, 7n];
+
+  it('is deterministic: levelAt(i, seed) reproduces the same level', () => {
+    for (const seed of SEEDS)
+      for (let k = 0; k < 40; k++) {
+        const i = ENDLESS_START + k;
+        expect(levelAt(i, seed)).toEqual(levelAt(i, seed));
+      }
+  });
+
+  it('every generated target is in [8,999] and buildable from {2,3,5,7} in a few machines', () => {
+    for (const seed of SEEDS)
+      for (let k = 0; k < 60; k++) {
+        const lvl = levelAt(ENDLESS_START + k, seed);
+        expect(lvl.target).toBeGreaterThanOrEqual(8n);
+        expect(lvl.target).toBeLessThanOrEqual(999n);
+        expect(lvl.required).toBeGreaterThan(0);
+        expect([...lvl.ops].sort()).toEqual([...ALL_OPS].sort());
+        // independent reachability check — deeper budget than the generator itself uses
+        expect(reachableWithOps(lvl.target, DEPOSITS, ALL_OPS)).toBe(true);
+      }
+  });
+
+  it('eases in with 2-digit targets for the first 10 endless levels', () => {
+    for (const seed of SEEDS)
+      for (let k = 0; k < 10; k++) {
+        const t = levelAt(ENDLESS_START + k, seed).target;
+        expect(t).toBeGreaterThanOrEqual(10n);
+        expect(t).toBeLessThanOrEqual(99n); // 2-digit while easing her in
+      }
+  });
+
+  it('produces both prime and composite targets over a run (not just a multiplication game)', () => {
+    let primes = 0, composites = 0;
+    for (let k = 0; k < 80; k++) {
+      const t = levelAt(ENDLESS_START + k, 42).target;
+      if (isPrime(t)) primes++; else composites++;
+    }
+    expect(primes).toBeGreaterThan(0);
+    expect(composites).toBeGreaterThan(0);
+  });
+
+  it('deposit drips are single-digit-prime copies, spaced out, capped, and never on the hub', () => {
+    const seen = new Set<string>();
+    let drips = 0;
+    for (let k = 0; k < 120; k++)
+      for (const n of levelAt(ENDLESS_START + k, 99).grantNodes) {
+        drips++;
+        expect(DEPOSITS).toContain(n.value);   // only {2,3,5,7} are ever dripped
+        expect(onHub(n.x, n.y)).toBe(false);
+        const key = `${n.x},${n.y}`;
+        expect(seen.has(key)).toBe(false);      // no two drips land on the same cell
+        seen.add(key);
+      }
+    expect(drips).toBeGreaterThan(0);
+    expect(drips).toBeLessThanOrEqual(6);        // MAX_DRIPS — never re-clutters the map
+  });
+
+  it('goals ramp up in magnitude as levels climb', () => {
+    const avg = (from: number, to: number, seed: number) => {
+      let sum = 0;
+      for (let k = from; k < to; k++) sum += Number(levelAt(ENDLESS_START + k, seed).target);
+      return sum / (to - from);
+    };
+    let laterBigger = 0;
+    for (const seed of SEEDS) if (avg(45, 60, seed) > avg(0, 15, seed)) laterBigger++;
+    expect(laterBigger).toBeGreaterThanOrEqual(4); // holds for at least 4 of 5 seeds
   });
 });

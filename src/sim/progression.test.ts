@@ -4,7 +4,7 @@ import type { GameState } from './grid';
 import { addBuilding } from './buildings';
 import { advanceLevel, reconcileLevel, syncTargetToLevel, targetHub } from './progression';
 import { canPlaceMiner } from '../input/place';
-import { LEVELS } from '../content/levels';
+import { LEVELS, levelAt } from '../content/levels';
 
 const LAST = LEVELS.length - 1;
 // First level after 0 that grants a new deposit (not every level does).
@@ -41,17 +41,18 @@ describe('progression: advanceLevel', () => {
     expect([...s.nodes.values()].some((n) => n.value === granted)).toBe(true);
   });
 
-  it('wins the whole game on the final level and is idempotent afterward', () => {
+  it('advances the last campaign level into endless mode (never wins) and keeps going', () => {
     const s = withHub(LAST, LEVELS[LAST].required);
     const hub = targetHub(s)!;
     advanceLevel(s, hub);
-    expect(s.status).toBe('won');
-    expect(s.levelIndex).toBe(LAST);            // does not run off the end
-    expect(s.delivered).toBe((hub as any).required); // bar held at 100%
-    // A second call (a stray extra delivery) changes nothing.
+    expect(s.status).toBe('playing');                               // endless: no win state
+    expect(s.levelIndex).toBe(LAST + 1);                            // advanced past the campaign
+    expect(s.delivered).toBe(0);
+    expect((hub as any).target).toBe(levelAt(LAST + 1, s.seed).target); // hub points at the generated goal
+    // A further completion advances again — endless just keeps going.
     advanceLevel(s, hub);
-    expect(s.status).toBe('won');
-    expect(s.levelIndex).toBe(LAST);
+    expect(s.levelIndex).toBe(LAST + 2);
+    expect((hub as any).target).toBe(levelAt(LAST + 2, s.seed).target);
   });
 
   it('relocates a granted deposit when its authored spot is buried under the factory', () => {
@@ -75,12 +76,12 @@ describe('progression: reconcileLevel (load/migration consistency)', () => {
     expect((hub as any).required).toBe(LEVELS[2].required);
   });
 
-  it('clamps an out-of-range index and syncs the hub', () => {
+  it('keeps a large (endless) index and generates its goal — no upper clamp', () => {
     const s = withHub(0);
     s.levelIndex = 999;
     reconcileLevel(s);
-    expect(s.levelIndex).toBe(LAST);
-    expect((targetHub(s) as any).target).toBe(LEVELS[LAST].target);
+    expect(s.levelIndex).toBe(999); // endless: not clamped to the campaign length
+    expect((targetHub(s) as any).target).toBe(levelAt(999, s.seed).target);
   });
 
   it("rolls a pre-progression 'won' save (won at a non-final level) back into play", () => {
@@ -92,10 +93,10 @@ describe('progression: reconcileLevel (load/migration consistency)', () => {
     expect((targetHub(s) as any).required).toBe(LEVELS[0].required);
   });
 
-  it("keeps a genuine final-level 'won' save won", () => {
+  it("rolls any 'won' save back into play (endless mode never wins)", () => {
     const s = withHub(LAST, LEVELS[LAST].required, 'won');
     reconcileLevel(s);
-    expect(s.status).toBe('won');
+    expect(s.status).toBe('playing');
     expect(s.levelIndex).toBe(LAST);
   });
 
