@@ -1,41 +1,29 @@
-# Belt Factory MVP — progress ledger
+# Belt Factory — progress ledger
 
 Branch: feat/mvp
-Plan: docs/superpowers/plans/2026-07-16-belt-factory-mvp.md
 
-Base commit (branch start): ec5eb8c
-Task 1: complete (39143c3) — scaffold Vite+TS+Vitest
-Task 2: complete (2ebf585) — sparse Map world state + directions
-Task 3: complete (ea90fa6) — item model + BigInt
-Task 4: complete (076b671) — entity cell types + accept rules
-Task 5: complete (d2ba71c) — addition operation
-Task 6: complete (9306267) — chunk machinery + MVP world generator
-Task 7: complete (9d62002) — fixed-timestep tick (emit/move/produce/win)
-Task 8: complete (7772984) — versioned save/load (Map/Set/BigInt)
-Task 9: complete (f1dbf02) — Renderer interface, Camera + three themes
-Task 10: complete (f5afb40) — PixiJS renderer (camera, interpolation, theming)
-Task 11: complete (b707f34) — place/remove belts input
-Task 12: complete (c495622) — seeded users + bcrypt (added @types/bcryptjs, dev)
-Task 13: complete (3059598) — per-user JSON save storage
-Task 14: complete (8294647) — Express static host + auth/session/save API
-Task 15: complete (d0017fd) — client wiring (login, loops, camera, streaming, autosave, themes)
-Task 16: complete (10c6008) — docker-compose deployment with persistent volume
-Task 17: in progress — full verification + CLAUDE.md update.
+## MVP (plan: docs/superpowers/plans/2026-07-16-belt-factory-mvp.md) — COMPLETE
+Tasks 1–17 shipped: pure sim, PixiJS renderer + camera, seeded-user auth, per-user JSON
+save/resume, docker-compose. Then post-playtest fixes: drag-to-paint belts, corrupt-save
+recovery, tick accumulator clamp, renderer leak fix, resilient fetch, server hardening.
 
-Verification performed:
-- Full suite: 43/43 passing across 13 files (40 planned + 3 e2e integration).
-- tsc --noEmit clean; vite build succeeds.
-- Server API smoke (curl): login/me/state/save/logout status codes + save round-trip.
-- Docker: `docker-compose up --build` serves the built app + API; state persists across
-  `down`/`up` via the named volume.
-- Real-browser e2e (Playwright + system Chrome): login -> Target:12 puzzle -> place 21 belts by
-  clicking the canvas + HUD direction buttons -> WIN banner -> reload -> WIN banner returns (resume).
-- Added src/game.e2e.test.ts: cross-module integration test (route puzzle to win + mid-game
-  save/resume), per CLAUDE.md's ask for sim integration tests.
+## Beltmatic rework (plan: docs/superpowers/plans/2026-07-16-beltmatic-rework.md) — Phases A–E DONE
+Reworked the one-entity-per-cell world into Beltmatic-style: 1×1 belts + 3×3 rotatable
+buildings (miner/operator/target) over a resource-node ground layer.
 
-Known note (pre-existing, task 7, not changed): src/sim/tick.ts imports applyOp/OpId from
-src/content/operations — a sim->content import. content/operations is itself pure (no DOM/Node/
-framework), so determinism/testability hold; flagged for a future DI cleanup if strict purity wanted.
+- Phase A (a5334a2): sim/grid reshaped (belts/buildings/nodes/occupancy), sim/buildings.ts
+  geometry + occupancy, tick mine/produce/move/win. 26 sim tests.
+- Phase B (a5334a2): save v2 (three-store round-trip, rebuildOccupancy, old saves rejected),
+  world ChunkContent + instantiateBuilding, worldgen (nodes + target authored), placement
+  (footprint-aware belt paint, placeMiner/placeOperator, erase with target protected).
+- Phase C–E (257ef16): renderer draws nodes/belts(chevron)/3×3 bodies+arrows/ghost/no-belt
+  warning; new format.ts; HUD tool selector + rotation + "Not yet" flash; main.ts tool routing
+  (belt drag-paint, building single-click, right-drag erase), R rotate, 1/2/3 hotkeys, ghost,
+  v2 loader guard. Origin puzzle authors only nodes(7,5)+target; player places the machines.
 
-NEXT (post-MVP): procedural number deposits (content model B), difficulty Phases 2-4 as data,
-drag-to-pan/paint input, resume-from-corrupt-save hardening.
+Verified: 68 unit/integration tests, tsc clean, vite build, and a real-browser run
+(place 2 miners on nodes + operator via tools, drag belts, win, reload → resume wins).
+
+NEXT: difficulty progression (subtraction / × / ÷) as editable content data; procedural
+number deposits beyond the origin chunk; drag-to-pan; more building/machine types; and an
+adversarial code-review pass over the render/input rework.
