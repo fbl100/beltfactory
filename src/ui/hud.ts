@@ -1,7 +1,7 @@
 import type { Theme } from '../render/renderer';
 import { THEMES } from '../render/themes';
 import { formatValue } from '../render/format';
-import type { GameState, Direction } from '../sim/grid';
+import type { GameState } from '../sim/grid';
 import { LEVELS, clampLevelIndex, opsForLevel } from '../content/levels';
 import { ALL_OPS, OPERATIONS } from '../content/operations';
 import type { OpId } from '../content/operations';
@@ -11,7 +11,6 @@ export type Tool = 'belt' | 'miner' | 'operator' | 'splitter' | 'tunnel';
 export function createHud(
   parent: HTMLElement,
   onTheme: (t: Theme) => void,
-  onDir: (d: Direction) => void,
   onTool: (t: Tool) => void,
   onReset: () => void,
 ) {
@@ -69,21 +68,8 @@ export function createHud(
   const paintOps = () => { for (const op of ALL_OPS) opBtns[op].style.borderColor = op === activeOp ? '#1e88e5' : 'transparent'; };
   paintOps();
 
-  // --- direction / rotation ---
-  const dirs: Direction[] = ['up', 'down', 'left', 'right'];
-  const glyph: Record<Direction, string> = { up: '▲', down: '▼', left: '◀', right: '▶' };
-  let activeDir: Direction = 'right';
-  const dirWrap = document.createElement('div'); dirWrap.style.cssText = 'display:flex;gap:4px';
-  const dirBtns: Record<string, HTMLButtonElement> = {};
-  for (const d of dirs) {
-    const b = document.createElement('button');
-    b.textContent = glyph[d];
-    b.style.cssText = 'padding:6px 10px;border-radius:8px;border:2px solid transparent;cursor:pointer';
-    b.addEventListener('click', () => { activeDir = d; onDir(d); paintDirs(); });
-    dirBtns[d] = b; dirWrap.appendChild(b);
-  }
-  const paintDirs = () => dirs.forEach((d) => { dirBtns[d].style.borderColor = d === activeDir ? '#1e88e5' : 'transparent'; });
-  paintDirs();
+  // Placement facing is rotated with the R key (see main.ts); belts orient by the direction
+  // you drag/click, so there are no manual direction buttons.
 
   // --- theme switcher ---
   const sel = document.createElement('select'); sel.style.cssText = 'padding:6px;border-radius:8px';
@@ -110,7 +96,7 @@ export function createHud(
   banner.style.cssText = 'margin-left:auto;background:#2e7d32;color:#fff;padding:6px 12px;border-radius:8px;font-weight:800;display:none';
   banner.textContent = '🎉 You beat them all!';
 
-  bar.append(levelLabel, target, progWrap, toolWrap, opWrap, dirWrap, sel, reset, hint, notYet, levelToast, banner);
+  bar.append(levelLabel, target, progWrap, toolWrap, opWrap, sel, reset, hint, notYet, levelToast, banner);
   parent.appendChild(bar);
 
   let lastMisses = 0;
@@ -152,7 +138,6 @@ export function createHud(
         if (flash > 0) { flash--; notYet.style.display = 'block'; } else notYet.style.display = 'none';
       }
     },
-    setDir(d: Direction) { activeDir = d; paintDirs(); },
     setTool(t: Tool) { activeTool = t; paintTools(); },
     getOp(): OpId { return activeOp; },
   };

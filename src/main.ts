@@ -68,7 +68,6 @@ async function boot() {
   const hud = createHud(
     parent,
     (t) => { theme = t; renderer.setTheme(t); },
-    (d) => { placeDir = d; },
     (tl) => { tool = tl; pendingTunnel = null; beltAnchor = null; },
     () => {
       if (!confirm('Start this level over? This clears everything you built.')) return;
@@ -158,7 +157,7 @@ async function boot() {
     renderer.setCamera(cam); e.preventDefault();
   }, { passive: false });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; hud.setDir(placeDir); pendingTunnel = null; beltAnchor = null; return; }
+    if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '1') { tool = 'belt'; hud.setTool('belt'); pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '2') { tool = 'miner'; hud.setTool('miner'); pendingTunnel = null; beltAnchor = null; return; }
     if (e.key === '3') { tool = 'operator'; hud.setTool('operator'); pendingTunnel = null; beltAnchor = null; return; }
