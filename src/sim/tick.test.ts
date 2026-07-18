@@ -4,7 +4,7 @@ import { emptyState, setBelt, setSplitter, setTunnel, itemAt } from './grid';
 import type { Direction } from './grid';
 import type { BeltCell } from './entities';
 import { createItem } from './items';
-import { addBuilding, buildingAt } from './buildings';
+import { addBuilding, buildingAt, acceptsItemAt } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
 import { LEVELS, levelAt } from '../content/levels';
 
@@ -270,5 +270,18 @@ describe('tick: target / win', () => {
     step(s);
     expect(itemAt(s, 2, 2)?.id).toBe(1); // stayed put
     expect(s.items.length).toBe(1);
+  });
+});
+
+// Ties the shared acceptKindAt classifier to real movement: if acceptsItemAt says "no", the item
+// must not advance. This guards against the renderer's dead-end warning drifting from the sim rule.
+describe('acceptsItemAt agrees with movement', () => {
+  it('a belt into empty ground is a dead end and the item does not advance', () => {
+    const s = emptyState(1);
+    setBelt(s, 0, 0, { type: 'belt', dir: 'right' });
+    expect(acceptsItemAt(s, 1, 0)).toBe(false);
+    s.items.push(createItem(1, 5n, 0, 0));
+    step(s);
+    expect(itemAt(s, 0, 0)?.id).toBe(1);
   });
 });

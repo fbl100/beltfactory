@@ -2,12 +2,22 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { Renderer, Theme, Camera, Preview } from './renderer';
 import type { GameState, Direction } from '../sim/grid';
 import { parseKey, DELTA, DIRECTIONS, OPPOSITE } from '../sim/grid';
-import { buildingAt, portsOf, outCell, operatorOutCells, minerOutputs, dimsOf, centerOf, FOOTPRINT } from '../sim/buildings';
+import { buildingAt, portsOf, outCell, operatorOutCells, operatorTips, minerOutputs, dimsOf, centerOf, FOOTPRINT, acceptsItemAt } from '../sim/buildings';
 import { CHUNK_SIZE } from '../sim/world';
 import { OPERATIONS } from '../content/operations';
 import { formatValue, fitSize } from './format';
 
 const WARN = 0xff5555; // "no output belt" indicator
+
+// Item birth animation: pop in from nothing (~120ms) with a gentle overshoot to 1.15x that
+// settles back to 1.0 by ~200ms. Pure function of the item's age in ms.
+const POP_MS = 200;
+function spawnScale(ageMs: number): number {
+  if (ageMs >= POP_MS) return 1;
+  const grow = Math.min(1, ageMs / 120);                        // 0..1: pop up from nothing
+  const overshoot = 0.15 * Math.sin(Math.min(1, ageMs / POP_MS) * Math.PI); // peak +15% mid-flight
+  return grow * (1 + overshoot);
+}
 
 export class PixiRenderer implements Renderer {
   private app = new Application();
@@ -16,6 +26,14 @@ export class PixiRenderer implements Renderer {
   private layer = new Container();
   private cam: Camera = { x: 8, y: 6, zoom: 44 };
   private preview: Preview | null = null;
+  // Cells the dead-end warning must NOT flag (set by main each session; defaults to "flag nothing suppressed").
+  private graced: (x: number, y: number) => boolean = () => false;
+  private hover: { x: number; y: number } | null = null;
+  // Item birth times for the spawn-pop. Keyed by item id; the sim never stores render state. Each
+  // entry records first-seen ms + the draw frame it was last seen, so we can prune vanished items
+  // without allocating a Set of live ids every frame.
+  private itemBirth = new Map<number, { first: number; frame: number }>();
+  private drawFrame = 0;
   private cellG = new Graphics(); // grid + nodes + belts + building bodies + arrows + ghost
   private itemG = new Graphics(); // item circles
   private texts: Text[] = [];
@@ -33,6 +51,8 @@ export class PixiRenderer implements Renderer {
   setTheme(theme: Theme): void { this.theme = theme; this.app.renderer.background.color = theme.background; }
   setCamera(cam: Camera): void { this.cam = cam; }
   setPreview(p: Preview | null): void { this.preview = p; }
+  setDeadEndGrace(isGraced: (x: number, y: number) => boolean): void { this.graced = isGraced; }
+  setHover(c: { x: number; y: number } | null): void { this.hover = c; }
   resize(): void { /* Application resizeTo handles the canvas; draw() recomputes from live size */ }
   destroy(): void { this.app.destroy(true, { children: true }); }
 
@@ -46,6 +66,11 @@ export class PixiRenderer implements Renderer {
       x: Math.floor((px - this.vw / 2) / this.cam.zoom + this.cam.x),
       y: Math.floor((py - this.vh / 2) / this.cam.zoom + this.cam.y),
     };
+  }
+
+  // Exact inverse of sx()/sy() (no flooring) so callers get sub-cell precision for anchoring DOM.
+  worldToScreen(wx: number, wy: number) {
+    return { x: this.sx(wx), y: this.sy(wy) };
   }
 
   private visibleCellRange() {
@@ -78,11 +103,33 @@ export class PixiRenderer implements Renderer {
       .fill({ color, alpha });
   }
 
+  // Marching conveyor treads: TREADS chevrons scrolling in `dir` across the cell so a belt
+  // visibly reads as "on". `phase` (0..1) is tick-synced (= interpolation alpha), so treads
+  // travel one cell per tick — exactly item speed, so belts and items move together. Chevrons
+  // fade at the cell edges so the loop point isn't a visible pop.
+  private static readonly TREADS = 2;
+  private beltTreads(g: Graphics, ccx: number, ccy: number, cs: number, dir: Direction, phase: number, color: number) {
+    const d = DELTA[dir], span = cs * 0.9, size = cs * 0.17;
+    for (let i = 0; i < PixiRenderer.TREADS; i++) {
+      const f = (i / PixiRenderer.TREADS + phase) % 1;       // 0..1 position along the travel axis
+      const o = (f - 0.5) * span;                            // pixels ahead/behind center
+      const edgeFade = Math.min(1, (0.5 - Math.abs(f - 0.5)) * 4); // dim near the two ends
+      this.arrow(g, ccx + d.dx * o, ccy + d.dy * o, size, dir, color, 0.35 + 0.5 * edgeFade);
+    }
+  }
+
   draw(state: GameState, alpha: number): void {
     const t = this.theme, cs = this.cam.zoom;
     const r = this.visibleCellRange();
     const g = this.cellG;
     g.clear();
+    // Tick-synced animation phase (0..1): items advance one cell per tick and interpolate over
+    // `alpha`, so belt treads scrolling by this phase stay locked to item speed.
+    const beltPhase = ((state.tick + alpha) % 1 + 1) % 1;
+    this.drawFrame++;
+    // Wall-clock pulse (ms) driving ephemeral warning throbs; NOT tick-synced (throbs pulse smoothly
+    // even while the sim is paused during a celebration).
+    const nowMs = performance.now();
     const inRange = (x: number, y: number) => x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
 
     // grid lines
@@ -111,14 +158,31 @@ export class PixiRenderer implements Renderer {
       label(formatValue(node.value), this.sx(node.x) + cs / 2, this.sy(node.y) + cs / 2, t.nodeText, fitSize(formatValue(node.value), cs, Math.round(cs * 0.42)));
     }
 
-    // belts (1x1) + a small direction chevron
+    // belts (1x1): body + marching conveyor treads. A belt whose downstream cell can't accept an item
+    // is a DEAD END: dim it, freeze its treads, and cap the leading edge in throbbing red with a "!".
+    // this.graced suppresses the warning on cells the player is actively working on, so painting a
+    // normal line never flashes red at every head.
     for (const [key, belt] of state.belts) {
       const { x, y } = parseKey(key);
       if (!inRange(x, y)) continue;
+      const d = DELTA[belt.dir];
+      const deadEnd = !acceptsItemAt(state, x + d.dx, y + d.dy) && !this.graced(x, y);
+      const bodyAlpha = deadEnd ? 0.45 : 1;
       const px = this.sx(x) + 2, py = this.sy(y) + 2, sz = cs - 4;
-      g.roundRect(px, py, sz, sz, t.cornerRadius).fill(t.belt);
-      g.roundRect(px, py, sz, sz, t.cornerRadius).stroke({ width: 2, color: t.beltEdge });
-      this.arrow(g, this.sx(x) + cs / 2, this.sy(y) + cs / 2, cs * 0.2, belt.dir, t.beltEdge);
+      g.roundRect(px, py, sz, sz, t.cornerRadius).fill({ color: t.belt, alpha: bodyAlpha });
+      g.roundRect(px, py, sz, sz, t.cornerRadius).stroke({ width: 2, color: t.beltEdge, alpha: bodyAlpha });
+      // frozen treads (fixed centered phase) read as "stopped"; live tick-synced phase otherwise
+      this.beltTreads(g, this.sx(x) + cs / 2, this.sy(y) + cs / 2, cs, belt.dir, deadEnd ? 0.5 : beltPhase, t.beltEdge);
+      if (deadEnd) {
+        const ccx = this.sx(x) + cs / 2, ccy = this.sy(y) + cs / 2;
+        const ex = ccx + d.dx * cs * 0.42, ey = ccy + d.dy * cs * 0.42; // leading-edge midpoint
+        const perpx = -d.dy, perpy = d.dx, half = cs * 0.34;
+        const throb = 0.5 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.5..0.9 pulse
+        g.moveTo(ex + perpx * half, ey + perpy * half)
+          .lineTo(ex - perpx * half, ey - perpy * half)
+          .stroke({ width: cs * 0.16, color: WARN, alpha: throb, cap: 'round' }); // soft red cap
+        label('!', ccx + d.dx * cs * 0.26, ccy + d.dy * cs * 0.26, WARN, Math.round(cs * 0.5));
+      }
     }
 
     // splitters (1x1): body + a chevron toward each active output + a hub dot
@@ -159,6 +223,21 @@ export class PixiRenderer implements Renderer {
       const px = this.sx(ax) + 2, py = this.sy(ay) + 2;
       const body = b.type === 'miner' ? t.miner : b.type === 'operator' ? t.operator : t.sink;
       g.roundRect(px, py, w * cs - 4, h * cs - 4, t.cornerRadius).fill(body);
+      // JUICE — hub fill meter: the target's body fills bottom-up with delivered/required, so she
+      // watches the goal 'charge' with every correct number. (state.delivered is the level's count.)
+      if (b.type === 'target' && b.required > 0) {
+        const frac = Math.max(0, Math.min(1, state.delivered / b.required));
+        if (frac > 0) {
+          const bw = w * cs - 4, bh = h * cs - 4, fh = bh * frac;
+          g.roundRect(px, py + (bh - fh), bw, fh, t.cornerRadius).fill({ color: t.item, alpha: 0.35 });
+        }
+      }
+      // JUICE — miner breathe: brighten as the miner charges toward its next emit, then it resets
+      // on emit (sinceEmit -> 0). +alpha makes the glow ramp smoothly between ticks.
+      if (b.type === 'miner') {
+        const charge = Math.min(1, (b.sinceEmit + alpha) / b.everyTicks);
+        g.roundRect(px, py, w * cs - 4, h * cs - 4, t.cornerRadius).fill({ color: 0xffffff, alpha: 0.05 + 0.22 * charge });
+      }
 
       const c = centerOf(b), cxWorld = c.x, cyWorld = c.y;
       if (b.type === 'miner') {
@@ -180,6 +259,16 @@ export class PixiRenderer implements Renderer {
           // doesn't sit on the port arrow. (Rudimentary; a skin pass can lay this out nicely.)
           if (port.label) label(port.label, ex - d.dx * cs * 0.3, ey - d.dy * cs * 0.3, t.buildingText, Math.max(8, Math.round(cs * 0.22)));
         }
+        // dead-end warning: an operator input tip fed by nothing throbs red (unless just placed / graced)
+        if (b.type === 'operator') {
+          const tips = operatorTips(b);
+          const throb = 0.4 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.4..0.8 pulse
+          for (const tip of [tips.A, tips.B]) {
+            if (this.tipHasFeeder(state, tip.x, tip.y) || this.graced(tip.x, tip.y)) continue;
+            g.circle(this.sx(tip.x) + cs / 2, this.sy(tip.y) + cs / 2, cs * 0.42)
+              .stroke({ width: cs * 0.09, color: WARN, alpha: throb });
+          }
+        }
       }
 
       // Operator's center cell is 1x1, so it shows just the op symbol (A/B live at the tips).
@@ -189,6 +278,19 @@ export class PixiRenderer implements Renderer {
       const fitW = (b.type === 'operator' ? 1 : FOOTPRINT) * cs;
       const centerPx = this.sx(cxWorld) + cs / 2, centerPy = this.sy(cyWorld) + cs / 2;
       label(text, centerPx, centerPy, t.buildingText, fitSize(text, fitW, Math.round(cs * 0.9)));
+    }
+
+    // JUICE — hover outline: a soft pulsing highlight on the cell under the cursor (or the whole
+    // building it belongs to). Read-only; setHover is fed each frame from main.ts.
+    if (this.hover) {
+      const hb = buildingAt(state, this.hover.x, this.hover.y);
+      let ox = this.hover.x, oy = this.hover.y, hw = 1, hh = 1;
+      if (hb) { const d = dimsOf(hb); ox = hb.ax; oy = hb.ay; hw = d.w; hh = d.h; }
+      if (inRange(ox, oy) || inRange(ox + hw - 1, oy + hh - 1)) {
+        const pulse = 0.45 + 0.25 * Math.sin(nowMs / 350);
+        g.roundRect(this.sx(ox) + 1, this.sy(oy) + 1, hw * cs - 2, hh * cs - 2, t.cornerRadius)
+          .stroke({ width: 2, color: t.arrow, alpha: pulse });
+      }
     }
 
     // placement ghost (building tools only)
@@ -206,7 +308,12 @@ export class PixiRenderer implements Renderer {
     ig.clear();
     for (const it of state.items) {
       const ix = it.px + (it.x - it.px) * alpha, iy = it.py + (it.y - it.py) * alpha;
-      const px = this.sx(ix) + cs / 2, py = this.sy(iy) + cs / 2, rad = cs * 0.3;
+      // JUICE — spawn-pop: stamp first-seen ms on birth, refresh the frame marker every draw.
+      let rec = this.itemBirth.get(it.id);
+      if (rec) rec.frame = this.drawFrame;
+      else { rec = { first: nowMs, frame: this.drawFrame }; this.itemBirth.set(it.id, rec); }
+      const rad = cs * 0.3 * spawnScale(nowMs - rec.first);
+      const px = this.sx(ix) + cs / 2, py = this.sy(iy) + cs / 2;
       if (t.glow) ig.circle(px, py, rad + 4).fill({ color: t.item, alpha: 0.25 });
       ig.circle(px, py, rad).fill(t.item);
     }
@@ -216,6 +323,9 @@ export class PixiRenderer implements Renderer {
       label(s, this.sx(ix) + cs / 2, this.sy(iy) + cs / 2, t.itemText, fitSize(s, cs, Math.round(cs * 0.4)));
     }
 
+    // JUICE — prune birth records for items that no longer exist (consumed or delivered).
+    for (const [id, rec] of this.itemBirth) if (rec.frame !== this.drawFrame) this.itemBirth.delete(id);
+
     // hide pooled text not used this frame (kept for reuse, never dropped)
     for (let k = ti; k < this.texts.length; k++) this.texts[k].visible = false;
   }
@@ -223,6 +333,24 @@ export class PixiRenderer implements Renderer {
   private carrierPresent(state: GameState, c: { x: number; y: number }): boolean {
     const k = `${c.x},${c.y}`;
     return state.belts.has(k) || state.splitters.has(k) || state.tunnels.has(k);
+  }
+
+  // Would anything actually deliver an item onto (tx,ty)? A belt pointing in, a splitter (round-robin
+  // can send any way), a tunnel exit aimed here, an adjacent miner (wide source), or an operator whose
+  // output cell lands here. Used only to decide whether an operator input tip is "fed by nothing".
+  private tipHasFeeder(state: GameState, tx: number, ty: number): boolean {
+    for (const s of DIRECTIONS) {
+      const nx = tx + DELTA[s].dx, ny = ty + DELTA[s].dy, into = OPPOSITE[s]; // dir from neighbor back to tip
+      const belt = state.belts.get(`${nx},${ny}`);
+      if (belt && belt.dir === into) return true;
+      if (state.splitters.has(`${nx},${ny}`)) return true;
+      const tun = state.tunnels.get(`${nx},${ny}`);
+      if (tun && tun.role === 'out' && tun.dir === into) return true;
+      const nb = buildingAt(state, nx, ny);
+      if (nb && nb.type === 'miner') return true;
+      if (nb && nb.type === 'operator' && operatorOutCells(nb).some((o) => o.x === tx && o.y === ty)) return true;
+    }
+    return false;
   }
 }
 

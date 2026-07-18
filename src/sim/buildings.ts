@@ -133,6 +133,30 @@ export function buildingAt(s: GameState, x: number, y: number): Building | undef
   return anchor ? s.buildings.get(anchor) : undefined;
 }
 
+// How a cell would receive an item that arrives on it. STRUCTURAL only: independent of travel
+// direction and of transient state (belt occupancy, a tip already holding a pending value, target
+// counting). tick.ts's advanceBeltItem switches on this, and the renderer's dead-end warning reads
+// it, so item movement and the warning can never disagree about what counts as a dead end.
+// Order matches advanceBeltItem: carriers first (a cell can never be both a carrier and a building —
+// placement of one refuses if the other is present).
+export type AcceptKind = 'carrier' | 'operator-tip' | 'target-port' | 'none';
+export function acceptKindAt(s: GameState, x: number, y: number): AcceptKind {
+  if (beltAt(s, x, y) || splitterAt(s, x, y) || tunnelAt(s, x, y)) return 'carrier';
+  const b = buildingAt(s, x, y);
+  if (b) {
+    if (b.type === 'operator') {
+      const tips = operatorTips(b);
+      if ((x === tips.A.x && y === tips.A.y) || (x === tips.B.x && y === tips.B.y)) return 'operator-tip';
+      return 'none'; // center (output) cell / bar body: an item can't enter here
+    }
+    if (b.type === 'target' && inPortSlot(b, x, y) >= 0) return 'target-port';
+  }
+  return 'none'; // empty ground / node-only / miner face / operator center / target corner+body
+}
+export function acceptsItemAt(s: GameState, x: number, y: number): boolean {
+  return acceptKindAt(s, x, y) !== 'none';
+}
+
 // True if a belt, splitter, tunnel, OR building already occupies (x,y). Nodes are a separate layer and never block.
 export function isBlocked(s: GameState, x: number, y: number): boolean {
   return beltAt(s, x, y) !== undefined || splitterAt(s, x, y) !== undefined

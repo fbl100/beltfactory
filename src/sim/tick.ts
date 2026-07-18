@@ -3,7 +3,8 @@ import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt, tunnelAt } from './gri
 import type { Item } from './items';
 import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
-import { minerOutputs, inPortSlot, buildingAt, operatorTips, operatorOutCells } from './buildings';
+import { minerOutputs, buildingAt, operatorTips, operatorOutCells, acceptKindAt } from './buildings';
+import type { OperatorBuilding, TargetBuilding } from './buildings';
 import { createItem } from './items';
 import { advanceLevel, isStaleTargetValue } from './progression';
 import { applyOp } from '../content/operations';
@@ -106,45 +107,42 @@ function move(state: GameState): void {
   if (removed.size) state.items = state.items.filter((it) => !removed.has(it.id));
 }
 
-// Advance an item one cell in `dir`. Returns true if it progressed (moved/consumed).
+// Advance an item one cell in `dir`. Returns true if it progressed (moved/consumed). Cell
+// classification is shared with the renderer's dead-end warning via acceptKindAt (buildings.ts) so
+// the two can never disagree; the transient checks (occupancy, a tip already full, target counting)
+// layer on top here.
 function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<number>, removed: Set<number>): boolean {
   const { dx, dy } = DELTA[dir];
   const tx = it.x + dx, ty = it.y + dy;
+  const kind = acceptKindAt(state, tx, ty);
 
-  // carrier ahead (belt/splitter/tunnel) -> advance downstream-first when it frees
-  if (beltAt(state, tx, ty) || splitterAt(state, tx, ty) || tunnelAt(state, tx, ty)) {
+  if (kind === 'carrier') {
+    // advance downstream-first when the cell ahead frees
     if (!occupied(state, tx, ty, removed)) { it.x = tx; it.y = ty; moved.add(it.id); return true; }
     return false; // blocked this pass; leave unmarked to retry as downstream drains
   }
 
-  // building ahead -> deliver iff stepping onto one of its in-ports
-  const b = buildingAt(state, tx, ty);
-  if (b) {
-    if (b.type === 'operator') {
-      // 1x3 operator: the two end cells (tips A/B) are inputs; the center's two long edges are
-      // outputs. ANY edge of a tip accepts (the only inward edge faces the center, which an item
-      // can't cross). Keep at most one pending value PER tip so two items from the SAME belt can't
-      // pair (which produced e.g. 3×3=9 instead of 2×3=6). Entering the center (output) is rejected.
-      const tips = operatorTips(b);
-      const tip = tx === tips.A.x && ty === tips.A.y ? 'A' : tx === tips.B.x && ty === tips.B.y ? 'B' : null;
-      if (tip && !b.inputs.some((p) => p.tip === tip)) {
-        b.inputs.push({ tip, value: it.value }); removed.add(it.id); return true;
-      }
-      moved.add(it.id); return false; // center (output) cell, or that tip already full
-    }
-    const slot = inPortSlot(b, tx, ty);
-    if (b.type === 'target' && slot >= 0) {
-      // Count only; the level-up / win decision happens once per tick in checkLevel(), after
-      // all movement settles — see step(). A value that was a target on an earlier level is
-      // stale leftover output from the pre-advance factory, not a mistake — don't punish it.
-      if (it.value === b.target) state.delivered++;
-      else if (!isStaleTargetValue(state, it.value)) state.misses++;
-      removed.add(it.id); return true;
-    }
-    moved.add(it.id); return false; // non-port footprint cell / miner face
+  if (kind === 'operator-tip') {
+    // Keep at most one pending value PER tip so two items from the SAME belt can't pair (which
+    // produced e.g. 3×3=9 instead of 2×3=6). A full tip is transient back-pressure, not a dead end.
+    const b = buildingAt(state, tx, ty) as OperatorBuilding;
+    const tips = operatorTips(b);
+    const tip = tx === tips.A.x && ty === tips.A.y ? 'A' : 'B';
+    if (!b.inputs.some((p) => p.tip === tip)) { b.inputs.push({ tip, value: it.value }); removed.add(it.id); return true; }
+    moved.add(it.id); return false; // that tip already full
   }
 
-  moved.add(it.id); return false; // empty ground / node-only cell / edge
+  if (kind === 'target-port') {
+    // Count only; the level-up / win decision happens once per tick in checkLevel(), after all
+    // movement settles — see step(). A value that was a target on an earlier level is stale leftover
+    // output from the pre-advance factory, not a mistake — don't punish it.
+    const b = buildingAt(state, tx, ty) as TargetBuilding;
+    if (it.value === b.target) state.delivered++;
+    else if (!isStaleTargetValue(state, it.value)) state.misses++;
+    removed.add(it.id); return true;
+  }
+
+  moved.add(it.id); return false; // 'none': empty ground / node-only / miner face / operator center / edge
 }
 
 // An item on a tunnel entrance dives to the nearest matching exit ahead.

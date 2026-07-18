@@ -24,9 +24,13 @@ export const THEMES: Theme[] = [
   {
     id: 'neonArcade', name: 'Neon Arcade',
     background: 0x0d0221, grid: 0x1b1040,
-    belt: 0x2d1b69, beltEdge: 0x00e5ff,
+    // Belt fill lightened (0x2d1b69 -> 0x352080) so belt paths read as figures when zoomed out
+    // and the scrolling treads pop against them.
+    belt: 0x352080, beltEdge: 0x00e5ff,
     miner: 0x7c4dff, operator: 0xff2e97, sink: 0x00b3ff,
-    node: 0xffea00, nodeText: 0x0d0221,
+    // Deposits are amber ("ore in the ground"); live items stay electric yellow. Previously both
+    // were near-identical yellows (0xffea00 vs 0xfff200), which read as the same thing to a kid.
+    node: 0xffb300, nodeText: 0x0d0221,
     item: 0xfff200, itemText: 0x0d0221,
     arrow: 0x00e5ff, buildingText: 0xffffff,
     cornerRadius: 4, glow: true,

@@ -43,9 +43,17 @@ export interface Renderer {
   setTheme(theme: Theme): void;
   setCamera(cam: Camera): void;
   setPreview(p: Preview | null): void;
+  // Render-only hint for the dead-end warning: return true for cells the warning must NOT flag
+  // (recently painted/placed, or under the cursor). Set from main; the sim never sees it.
+  setDeadEndGrace(isGraced: (x: number, y: number) => boolean): void;
+  // Cell under the cursor (or the building it belongs to), for a soft highlight; null clears it.
+  setHover(cell: { x: number; y: number } | null): void;
   // alpha in [0,1]: interpolate items between previous (px,py) and current (x,y).
   draw(state: GameState, alpha: number): void;
   screenToWorld(px: number, py: number): { x: number; y: number };
+  // Inverse of screenToWorld: world coords -> canvas-relative CSS px (add getBoundingClientRect() to
+  // reach viewport px). Pass cell-CENTER coords (cellX + 0.5) to anchor to a cell's middle.
+  worldToScreen(wx: number, wy: number): { x: number; y: number };
   visibleChunkRange(): { minCx: number; minCy: number; maxCx: number; maxCy: number };
   // Unpadded world-cell extent of the viewport (for e.g. focusing a newly-granted deposit).
   visibleCellBounds(): { minX: number; maxX: number; minY: number; maxY: number };

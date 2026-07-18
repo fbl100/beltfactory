@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { emptyState, cellKey } from './grid';
+import { emptyState, cellKey, setBelt, setSplitter, setTunnel } from './grid';
 import type { Direction } from './grid';
 import {
   centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf,
   dimsOf, operatorTips, operatorOutCells,
   addBuilding, removeBuildingAt, buildingAt, isBlocked, rebuildOccupancy,
+  acceptKindAt, acceptsItemAt,
 } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
 
@@ -14,6 +15,49 @@ const op = (ax: number, ay: number, dir: Direction): OperatorBuilding =>
   ({ type: 'operator', ax, ay, dir, op: 'add', inputs: [], everyTicks: 20, sinceProduce: 0 });
 const target = (ax: number, ay: number, dir: Direction): TargetBuilding =>
   ({ type: 'target', ax, ay, dir, target: 12n, required: 5 });
+
+describe('acceptKindAt / acceptsItemAt (shared with tick.advanceBeltItem)', () => {
+  it('carrier cells (belt/splitter/tunnel) accept', () => {
+    const s = emptyState(1);
+    setBelt(s, 0, 0, { type: 'belt', dir: 'right' });
+    setSplitter(s, 1, 0, { type: 'splitter', dir: 'right', next: 0 });
+    setTunnel(s, 2, 0, { type: 'tunnel', dir: 'right', role: 'in' });
+    expect(acceptKindAt(s, 0, 0)).toBe('carrier');
+    expect(acceptKindAt(s, 1, 0)).toBe('carrier');
+    expect(acceptKindAt(s, 2, 0)).toBe('carrier');
+    expect(acceptsItemAt(s, 0, 0)).toBe(true);
+  });
+  it('empty ground is a dead end', () => {
+    const s = emptyState(1);
+    expect(acceptKindAt(s, 5, 5)).toBe('none');
+    expect(acceptsItemAt(s, 5, 5)).toBe(false);
+  });
+  it('operator tips accept; center/body do not; a full tip is NOT a dead end', () => {
+    const s = emptyState(1);
+    const b = op(0, 0, 'up'); // horizontal bar: tips at (0,0) & (2,0), center (output) at (1,0)
+    addBuilding(s, b);
+    const tips = operatorTips(b);
+    expect(acceptKindAt(s, tips.A.x, tips.A.y)).toBe('operator-tip');
+    expect(acceptKindAt(s, tips.B.x, tips.B.y)).toBe('operator-tip');
+    expect(acceptKindAt(s, 1, 0)).toBe('none'); // center (output) rejects incoming items
+    b.inputs.push({ tip: 'A', value: 3n }); // transient back-pressure, not a dead end
+    expect(acceptsItemAt(s, tips.A.x, tips.A.y)).toBe(true);
+  });
+  it('target in-ports accept; corner and body do not', () => {
+    const s = emptyState(1);
+    const b = target(0, 0, 'right'); // 3x3, center (1,1)
+    addBuilding(s, b);
+    expect(acceptKindAt(s, 1, 0)).toBe('target-port'); // top edge-center
+    expect(acceptKindAt(s, 0, 1)).toBe('target-port'); // left edge-center
+    expect(acceptKindAt(s, 0, 0)).toBe('none');        // corner
+    expect(acceptKindAt(s, 1, 1)).toBe('none');        // body center
+  });
+  it('a miner footprint face is a dead end (miners have no in-ports)', () => {
+    const s = emptyState(1);
+    addBuilding(s, miner(0, 0, 'right'));
+    expect(acceptKindAt(s, 2, 1)).toBe('none'); // front-edge face cell of the 3x3 miner
+  });
+});
 
 describe('building geometry', () => {
   it('center, footprint, coversCell', () => {

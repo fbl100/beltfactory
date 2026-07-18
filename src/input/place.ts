@@ -47,7 +47,8 @@ export function placeTunnel(state: GameState, x: number, y: number, dir: Directi
 // `endDir` covers a single-cell stroke (a plain click), honoring the HUD facing.
 export function paintBeltLine(
   state: GameState, ax: number, ay: number, bx: number, by: number, endDir: Direction,
-): void {
+): { x: number; y: number }[] {
+  const painted: { x: number; y: number }[] = [];
   let cx = ax, cy = ay;
   let lastDir: Direction = endDir;
   while (cx !== bx || cy !== by) {
@@ -56,9 +57,12 @@ export function paintBeltLine(
     else ny += Math.sign(by - cy);
     lastDir = dirBetween(cx, cy, nx, ny);
     placeOrOrientBelt(state, cx, cy, lastDir);
+    painted.push({ x: cx, y: cy });
     cx = nx; cy = ny;
   }
   placeOrOrientBelt(state, bx, by, lastDir);
+  painted.push({ x: bx, y: by });
+  return painted;
 }
 
 // Remove a belt (not buildings/nodes); drops any item sitting on it.
