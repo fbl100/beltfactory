@@ -3,10 +3,11 @@ import { emptyState, cellKey, setBelt, setSplitter, setTunnel } from './grid';
 import type { Direction } from './grid';
 import {
   centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf,
-  dimsOf, operatorTips, operatorOutCells,
+  dimsOf, operatorTips, operatorOutCells, squareCells, squareOutCell,
   addBuilding, removeBuildingAt, buildingAt, isBlocked, rebuildOccupancy,
   acceptKindAt, acceptsItemAt,
 } from './buildings';
+import type { SquareBuilding } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
 
 const miner = (ax: number, ay: number, dir: Direction): MinerBuilding =>
@@ -56,6 +57,33 @@ describe('acceptKindAt / acceptsItemAt (shared with tick.advanceBeltItem)', () =
     const s = emptyState(1);
     addBuilding(s, miner(0, 0, 'right'));
     expect(acceptKindAt(s, 2, 1)).toBe('none'); // front-edge face cell of the 3x3 miner
+  });
+});
+
+describe('square (1x2 unary squarer)', () => {
+  const sq = (ax: number, ay: number, dir: Direction): SquareBuilding =>
+    ({ type: 'square', ax, ay, dir, pending: null, everyTicks: 1, sinceProduce: 0 });
+
+  it('is a 1x2 bounding box oriented along the flow direction', () => {
+    expect(dimsOf(sq(0, 0, 'right'))).toEqual({ w: 2, h: 1 });
+    expect(dimsOf(sq(0, 0, 'up'))).toEqual({ w: 1, h: 2 });
+  });
+  it('input is the upstream cell, output is downstream along dir, emit is one past the output', () => {
+    // dir right: cells (0,0)&(1,0); input left, output right, emit at (2,0)
+    let b = sq(0, 0, 'right');
+    expect(squareCells(b)).toEqual({ input: { x: 0, y: 0 }, output: { x: 1, y: 0 } });
+    expect(squareOutCell(b)).toEqual({ x: 2, y: 0 });
+    // dir up: cells (0,0)&(0,1); flow up -> output is the TOP cell (0,0), input the bottom (0,1)
+    b = sq(0, 0, 'up');
+    expect(squareCells(b)).toEqual({ input: { x: 0, y: 1 }, output: { x: 0, y: 0 } });
+    expect(squareOutCell(b)).toEqual({ x: 0, y: -1 });
+  });
+  it('acceptKindAt: the input end accepts, the output end rejects', () => {
+    const s = emptyState(1);
+    const b = sq(0, 0, 'right');
+    addBuilding(s, b);
+    expect(acceptKindAt(s, 0, 0)).toBe('square-input'); // input end
+    expect(acceptKindAt(s, 1, 0)).toBe('none');         // output end — can't feed items in here
   });
 });
 

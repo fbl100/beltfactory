@@ -8,7 +8,7 @@ import type { OpId } from '../content/operations';
 // cell -> anchor key. `dimsOf` is the single source of truth for a building's bounding-box size.
 export const FOOTPRINT = 3;
 
-export type BuildingType = 'miner' | 'operator' | 'target';
+export type BuildingType = 'miner' | 'operator' | 'target' | 'square';
 
 interface Base { ax: number; ay: number; dir: Direction }
 export interface MinerBuilding extends Base { type: 'miner'; value: bigint; everyTicks: number; sinceEmit: number }
@@ -19,7 +19,11 @@ export interface OperatorInput { tip: 'A' | 'B'; value: bigint }
 // produced e.g. 3×3=9 instead of 2×3=6). A and B are interchangeable (ops are order-independent).
 export interface OperatorBuilding extends Base { type: 'operator'; op: OpId; inputs: OperatorInput[]; everyTicks: number; sinceProduce: number }
 export interface TargetBuilding extends Base { type: 'target'; target: bigint; required: number } // dir vestigial (accepts all 4 sides)
-export type Building = MinerBuilding | OperatorBuilding | TargetBuilding;
+// A 1x2 UNARY "squarer": a number arriving on the input end is squared (n -> n²) and emitted from
+// the output end (which points along `dir`). Holds at most one pending value; `pending` is transient
+// (reset on load, like an operator's inputs).
+export interface SquareBuilding extends Base { type: 'square'; pending: bigint | null; everyTicks: number; sinceProduce: number }
+export type Building = MinerBuilding | OperatorBuilding | TargetBuilding | SquareBuilding;
 
 // An operator's 1x3 bar lies PERPENDICULAR to its output direction: output up/down -> a horizontal
 // bar (tips left & right); output left/right -> a vertical bar (tips above & below).
@@ -27,10 +31,30 @@ function operatorHoriz(dir: Direction): boolean {
   return dir === 'up' || dir === 'down';
 }
 
-// Bounding-box size in cells. Miner/target are 3x3; an operator is a 1x3 bar oriented by its output.
+// Bounding-box size in cells. Miner/target are 3x3; an operator is a 1x3 bar oriented by its output;
+// a squarer is a 1x2 bar along its flow direction (input end -> output end).
 export function dimsOf(b: Building): { w: number; h: number } {
   if (b.type === 'operator') return operatorHoriz(b.dir) ? { w: FOOTPRINT, h: 1 } : { w: 1, h: FOOTPRINT };
+  if (b.type === 'square') return b.dir === 'left' || b.dir === 'right' ? { w: 2, h: 1 } : { w: 1, h: 2 };
   return { w: FOOTPRINT, h: FOOTPRINT };
+}
+
+// A squarer's two footprint cells: the item enters `input` (from any exposed edge) and the square
+// leaves the machine one cell past `output` along `dir` (see squareOutCell). `output` is whichever
+// of the two cells lies further along the flow direction.
+export function squareCells(b: SquareBuilding): { input: { x: number; y: number }; output: { x: number; y: number } } {
+  const horiz = b.dir === 'left' || b.dir === 'right';
+  const c0 = { x: b.ax, y: b.ay };
+  const c1 = horiz ? { x: b.ax + 1, y: b.ay } : { x: b.ax, y: b.ay + 1 };
+  const d = DELTA[b.dir];
+  const dot = (c1.x - c0.x) * d.dx + (c1.y - c0.y) * d.dy; // >0 => c1 is the downstream (output) cell
+  return dot > 0 ? { input: c0, output: c1 } : { input: c1, output: c0 };
+}
+
+// The external belt cell just beyond the squarer's output end, where the squared value is emitted.
+export function squareOutCell(b: SquareBuilding): { x: number; y: number } {
+  const { output } = squareCells(b), d = DELTA[b.dir];
+  return { x: output.x + d.dx, y: output.y + d.dy };
 }
 
 export function centerOf(b: Building): { x: number; y: number } {
@@ -111,6 +135,7 @@ export function portsOf(b: Building): Port[] {
       { role: 'in', slot: 1, side: OPPOSITE[perp], dir: perp, label: 'B' },
     ];
   }
+  if (b.type === 'square') return []; // the renderer draws the squarer's in/out arrows itself
   return DIRECTIONS.map((s) => ({ role: 'in' as const, slot: 0, side: s, dir: OPPOSITE[s] }));
 }
 
@@ -139,7 +164,7 @@ export function buildingAt(s: GameState, x: number, y: number): Building | undef
 // it, so item movement and the warning can never disagree about what counts as a dead end.
 // Order matches advanceBeltItem: carriers first (a cell can never be both a carrier and a building —
 // placement of one refuses if the other is present).
-export type AcceptKind = 'carrier' | 'operator-tip' | 'target-port' | 'none';
+export type AcceptKind = 'carrier' | 'operator-tip' | 'target-port' | 'square-input' | 'none';
 export function acceptKindAt(s: GameState, x: number, y: number): AcceptKind {
   if (beltAt(s, x, y) || splitterAt(s, x, y) || tunnelAt(s, x, y)) return 'carrier';
   const b = buildingAt(s, x, y);
@@ -148,6 +173,10 @@ export function acceptKindAt(s: GameState, x: number, y: number): AcceptKind {
       const tips = operatorTips(b);
       if ((x === tips.A.x && y === tips.A.y) || (x === tips.B.x && y === tips.B.y)) return 'operator-tip';
       return 'none'; // center (output) cell / bar body: an item can't enter here
+    }
+    if (b.type === 'square') {
+      const { input } = squareCells(b);
+      return x === input.x && y === input.y ? 'square-input' : 'none'; // the output end rejects incoming items
     }
     if (b.type === 'target' && inPortSlot(b, x, y) >= 0) return 'target-port';
   }

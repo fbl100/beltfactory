@@ -275,6 +275,19 @@ describe('tick: target / win', () => {
 
 // Ties the shared acceptKindAt classifier to real movement: if acceptsItemAt says "no", the item
 // must not advance. This guards against the renderer's dead-end warning drifting from the sim rule.
+describe('tick: square (x²)', () => {
+  it('squares a single input and emits n² from the output end', () => {
+    const s = emptyState(1);
+    addBuilding(s, { type: 'square', ax: 0, ay: 0, dir: 'right', pending: null, everyTicks: 1, sinceProduce: 0 });
+    setBelt(s, -1, 0, belt('right')); // feeds the input end (0,0)
+    setBelt(s, 2, 0, belt('right'));  // receives the output at the emit cell (2,0)
+    s.items.push(createItem(1, 4n, -1, 0));
+    step(s); // item -> input, absorbed (pending = 4)
+    step(s); // produce emits 4² = 16 at (2,0)
+    expect(itemAt(s, 2, 0)?.value).toBe(16n);
+  });
+});
+
 describe('acceptsItemAt agrees with movement', () => {
   it('a belt into empty ground is a dead end and the item does not advance', () => {
     const s = emptyState(1);

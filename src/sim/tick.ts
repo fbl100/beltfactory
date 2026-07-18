@@ -3,8 +3,8 @@ import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt, tunnelAt } from './gri
 import type { Item } from './items';
 import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
-import { minerOutputs, buildingAt, operatorTips, operatorOutCells, acceptKindAt } from './buildings';
-import type { OperatorBuilding, TargetBuilding } from './buildings';
+import { minerOutputs, buildingAt, operatorTips, operatorOutCells, acceptKindAt, squareOutCell } from './buildings';
+import type { OperatorBuilding, TargetBuilding, SquareBuilding } from './buildings';
 import { createItem } from './items';
 import { advanceLevel, isStaleTargetValue } from './progression';
 import { applyOp } from '../content/operations';
@@ -71,6 +71,17 @@ function produce(state: GameState): void {
       b.inputs.splice(0, 2);
       b.sinceProduce = 0;
       break;
+    }
+  }
+  // Squarers: emit pending² from the output end once the rate allows and the downstream cell is free.
+  for (const b of state.buildings.values()) {
+    if (b.type !== 'square') continue;
+    b.sinceProduce++;
+    if (b.pending === null || b.sinceProduce < b.everyTicks) continue;
+    const o = squareOutCell(b);
+    if (canEmitOnto(state, o.x, o.y)) {
+      state.items.push(createItem(state.nextItemId++, b.pending * b.pending, o.x, o.y));
+      b.pending = null; b.sinceProduce = 0;
     }
   }
 }
@@ -140,6 +151,14 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
     if (it.value === b.target) state.delivered++;
     else if (!isStaleTargetValue(state, it.value)) state.misses++;
     removed.add(it.id); return true;
+  }
+
+  if (kind === 'square-input') {
+    // The squarer holds ONE pending value; produce() squares it out the far end. A full squarer is
+    // transient back-pressure (item waits), not a dead end.
+    const b = buildingAt(state, tx, ty) as SquareBuilding;
+    if (b.pending === null) { b.pending = it.value; removed.add(it.id); return true; }
+    moved.add(it.id); return false; // still holding a value
   }
 
   moved.add(it.id); return false; // 'none': empty ground / node-only / miner face / operator center / edge

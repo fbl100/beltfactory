@@ -1,6 +1,6 @@
 import type { GameState, Direction } from '../sim/grid';
-import { beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, nodeAt, RIGHT_OF } from '../sim/grid';
-import type { MinerBuilding, OperatorBuilding } from '../sim/buildings';
+import { beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, nodeAt, RIGHT_OF, DELTA } from '../sim/grid';
+import type { MinerBuilding, OperatorBuilding, SquareBuilding } from '../sim/buildings';
 import { isBlocked, buildingAt, addBuilding, removeBuildingAt } from '../sim/buildings';
 import type { OpId } from '../content/operations';
 import { MINER_EVERY_TICKS, OPERATOR_EVERY_TICKS } from '../content/config';
@@ -123,9 +123,27 @@ export function placeOperator(state: GameState, cx: number, cy: number, dir: Dir
   return addBuilding(state, b);
 }
 
+// A 1x2 squarer: INPUT end on the cursor cell (cx,cy), OUTPUT end one cell along `dir`.
+export function squareFootprintCells(cx: number, cy: number, dir: Direction): { x: number; y: number }[] {
+  const d = DELTA[dir];
+  return [{ x: cx, y: cy }, { x: cx + d.dx, y: cy + d.dy }];
+}
+
+export function canPlaceSquare(state: GameState, cx: number, cy: number, dir: Direction): boolean {
+  return squareFootprintCells(cx, cy, dir).every((c) => !isBlocked(state, c.x, c.y));
+}
+
+export function placeSquare(state: GameState, cx: number, cy: number, dir: Direction): boolean {
+  if (!canPlaceSquare(state, cx, cy, dir)) return false;
+  const d = DELTA[dir];
+  const ax = Math.min(cx, cx + d.dx), ay = Math.min(cy, cy + d.dy); // anchor = top-left of the 1x2 box
+  const b: SquareBuilding = { type: 'square', ax, ay, dir, pending: null, everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
+  return addBuilding(state, b);
+}
+
 // ---------- erase ----------
 
-// Erase a belt, or an OPERATOR (from any of its cells). The target hub and the automatic miners
+// Erase a belt, or an operator/squarer (from any of its cells). The target hub and the automatic miners
 // are protected: a 9-year-old can't delete the goal, and miners are permanent (they auto-respawn
 // on every deposit). Nodes are never removed.
 export function eraseAt(state: GameState, x: number, y: number): boolean {
@@ -137,7 +155,7 @@ export function eraseAt(state: GameState, x: number, y: number): boolean {
     return true;
   }
   const b = buildingAt(state, x, y);
-  if (b && b.type === 'operator') return removeBuildingAt(state, x, y);
+  if (b && (b.type === 'operator' || b.type === 'square')) return removeBuildingAt(state, x, y);
   return false;
 }
 

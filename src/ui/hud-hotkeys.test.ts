@@ -5,7 +5,7 @@ import { SLOTS, TOOL_HOTKEYS, OP_HOTKEYS, slotIsSelected } from './hud';
 import type { Tool } from './hud';
 import { ALL_OPS } from '../content/operations';
 
-const NON_OP_TOOLS: Tool[] = ['belt', 'splitter', 'tunnel', 'eraser'];
+const NON_OP_TOOLS: Tool[] = ['belt', 'splitter', 'tunnel', 'square', 'eraser'];
 
 describe('hotbar selection model', () => {
   it('lights exactly one slot for every (tool, op) combination', () => {

@@ -16,7 +16,7 @@ import { LEVELS, ENDLESS_START, opsForLevel } from '../content/levels';
 import { OPERATIONS } from '../content/operations';
 import type { OpId } from '../content/operations';
 
-export type Tool = 'belt' | 'operator' | 'splitter' | 'tunnel' | 'eraser';
+export type Tool = 'belt' | 'operator' | 'splitter' | 'tunnel' | 'square' | 'eraser';
 
 // ---- hotbar slot model (exported so the main.ts keymap and tests share it) ----
 // No 'operator' tool slot: picking an op glyph IS picking the operator tool (one tap = "build
@@ -34,6 +34,7 @@ export const SLOTS: SlotDef[] = [
   { kind: 'op', op: 'subtract', key: '5' },
   { kind: 'op', op: 'multiply', key: '6' },
   { kind: 'op', op: 'divide', key: '7' },
+  { kind: 'tool', tool: 'square', key: '8', glyph: 'x²', label: 'Square' },
   { kind: 'tool', tool: 'eraser', key: '0', glyph: '🧽', label: 'Erase' },
 ];
 
@@ -61,6 +62,8 @@ export interface HudCallbacks {
   onClearMap: () => void;   // "Clear Map" — main.ts owns the confirm()
   onMuteToggle: () => boolean; // flip mute where the Sfx lives (main.ts); returns the NEW muted state
   isMuted: () => boolean;      // initial icon state
+  username: string;         // who's signed in (shown in the gear menu)
+  onLogout: () => void;     // "Log Out" — main.ts owns the confirm() + reload
 }
 
 // All HUD styling in one injected block. Dark translucent rounded panels + a cyan selection glow
@@ -211,9 +214,22 @@ export function createHud(parent: HTMLElement, cb: HudCallbacks) {
 
   const hint = document.createElement('div');
   hint.className = 'bf-hint';
-  hint.textContent = '1 Belt · 2 Split · 3 Tunnel · 4–7 ＋ − × ÷ · 0 Erase · R rotate · drag (or click, then click) paints belts · right-drag erases · scroll / space-drag pans · pinch or + / − zooms · M mute';
+  hint.textContent = '1 Belt · 2 Split · 3 Tunnel · 4–7 ＋ − × ÷ · 8 x² · 0 Erase · R rotate · drag (or click, then click) paints belts · right-drag erases · scroll / space-drag pans · pinch or + / − zooms · M mute';
 
-  menu.append(themeLabel, sel, clearMap, reset, hint);
+  // Account: who's signed in + a Log Out button (main.ts confirms + reloads to the login screen).
+  const acctLabel = document.createElement('div');
+  acctLabel.className = 'bf-menu-label';
+  acctLabel.textContent = 'Account';
+  const whoami = document.createElement('div');
+  whoami.style.cssText = 'font-weight:800;font-size:13px;margin-top:-4px';
+  whoami.textContent = `Signed in as ${cb.username}`;
+  const logout = document.createElement('button');
+  logout.className = 'bf-menu-btn';
+  logout.style.background = '#455a64';
+  logout.textContent = 'Log Out';
+  gameButton(logout, () => { menu.classList.remove('open'); cb.onLogout(); });
+
+  menu.append(themeLabel, sel, clearMap, reset, acctLabel, whoami, logout, hint);
 
   gameButton(gearBtn, () => menu.classList.toggle('open'));
   // Click anywhere else closes the menu. gearBtn is excluded so its own click stays a pure toggle.

@@ -64,6 +64,15 @@ function operatorCursor(op: OpId): string {
   return cursorValue(svg32(body), 16, 16, 'crosshair');
 }
 
+function squareCursor(): string {
+  // An "x²" badge — the squarer machine you're about to drop.
+  const body = `<rect x='5' y='7' width='22' height='18' rx='4' fill='#0b132b'/><rect x='6.5' y='8.5'
+    width='19' height='15' rx='3' fill='#ffffff'/><text x='16' y='17' text-anchor='middle'
+    dominant-baseline='central' font-family='system-ui,sans-serif' font-size='13' font-weight='700'
+    fill='#0b132b'>x²</text>`;
+  return cursorValue(svg32(body), 16, 16, 'crosshair');
+}
+
 function eraserCursor(): string {
   // The hero: a tilted pink rubber eraser. Hotspot at the rubbing corner (bottom-left) so it
   // feels like you erase where the tip touches.
@@ -88,6 +97,7 @@ export function cursorFor(tool: Tool, op: OpId): string {
     case 'splitter': return memo('splitter', splitterCursor);
     case 'tunnel': return memo('tunnel', tunnelCursor);
     case 'operator': return memo(`op:${op}`, () => operatorCursor(op));
+    case 'square': return memo('square', squareCursor);
     case 'eraser': return memo('eraser', eraserCursor);
     default: return 'crosshair';
   }

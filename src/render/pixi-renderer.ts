@@ -2,7 +2,7 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { Renderer, Theme, Camera, Preview } from './renderer';
 import type { GameState, Direction } from '../sim/grid';
 import { parseKey, DELTA, DIRECTIONS, OPPOSITE } from '../sim/grid';
-import { buildingAt, portsOf, outCell, operatorOutCells, operatorTips, minerOutputs, dimsOf, centerOf, FOOTPRINT, acceptsItemAt } from '../sim/buildings';
+import { buildingAt, portsOf, outCell, operatorOutCells, operatorTips, minerOutputs, dimsOf, centerOf, FOOTPRINT, acceptsItemAt, squareCells, squareOutCell } from '../sim/buildings';
 import { CHUNK_SIZE } from '../sim/world';
 import { OPERATIONS } from '../content/operations';
 import { formatValue, fitSize } from './format';
@@ -221,7 +221,7 @@ export class PixiRenderer implements Renderer {
       const { w, h } = dimsOf(b);
       if (!(ax + w - 1 >= r.minX && ax <= r.maxX && ay + h - 1 >= r.minY && ay <= r.maxY)) continue;
       const px = this.sx(ax) + 2, py = this.sy(ay) + 2;
-      const body = b.type === 'miner' ? t.miner : b.type === 'operator' ? t.operator : t.sink;
+      const body = b.type === 'miner' ? t.miner : (b.type === 'operator' || b.type === 'square') ? t.operator : t.sink;
       g.roundRect(px, py, w * cs - 4, h * cs - 4, t.cornerRadius).fill(body);
       // JUICE — hub fill meter: the target's body fills bottom-up with delivered/required, so she
       // watches the goal 'charge' with every correct number. (state.delivered is the level's count.)
@@ -246,6 +246,20 @@ export class PixiRenderer implements Renderer {
           if (this.carrierPresent(state, o)) this.arrow(g, this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.2, o.dir, t.arrow, 1);
           else g.circle(this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.06).fill({ color: t.arrow, alpha: 0.3 });
         }
+      } else if (b.type === 'square') {
+        // squarer (1x2): a number enters the input end and leaves the output end squared. Draw an
+        // input arrow + an output arrow (WARN if nothing receives it), and throb the input if unfed.
+        const { input } = squareCells(b);
+        const oc = squareOutCell(b);
+        const hasOut = this.carrierPresent(state, oc);
+        this.arrow(g, this.sx(oc.x) + cs / 2, this.sy(oc.y) + cs / 2, cs * 0.28, b.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
+        this.arrow(g, this.sx(input.x) + cs / 2, this.sy(input.y) + cs / 2, cs * 0.18, b.dir, t.arrow, 0.55);
+        if (!this.tipHasFeeder(state, input.x, input.y) && !this.graced(input.x, input.y)) {
+          const throb = 0.4 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.4..0.8 pulse
+          g.circle(this.sx(input.x) + cs / 2, this.sy(input.y) + cs / 2, cs * 0.42).stroke({ width: cs * 0.09, color: WARN, alpha: throb });
+        }
+        // 'x²' label centered on the 1x2 bounding box
+        label('x²', this.sx(ax) + w * cs / 2, this.sy(ay) + h * cs / 2, t.buildingText, Math.round(cs * 0.5));
       } else {
         // operator has two output edges (either can feed a belt); warn only if NEITHER does.
         const outs = b.type === 'operator' ? operatorOutCells(b) : [outCell(b)];
@@ -271,13 +285,15 @@ export class PixiRenderer implements Renderer {
         }
       }
 
-      // Operator's center cell is 1x1, so it shows just the op symbol (A/B live at the tips).
-      const text = b.type === 'miner' ? formatValue(b.value)
-        : b.type === 'operator' ? (OPERATIONS[b.op]?.symbol ?? '?')
-        : formatValue(b.target);
-      const fitW = (b.type === 'operator' ? 1 : FOOTPRINT) * cs;
-      const centerPx = this.sx(cxWorld) + cs / 2, centerPy = this.sy(cyWorld) + cs / 2;
-      label(text, centerPx, centerPy, t.buildingText, fitSize(text, fitW, Math.round(cs * 0.9)));
+      // Center label (the squarer draws its own 'x²' above; skip it here).
+      if (b.type !== 'square') {
+        const text = b.type === 'miner' ? formatValue(b.value)
+          : b.type === 'operator' ? (OPERATIONS[b.op]?.symbol ?? '?')
+          : formatValue(b.target);
+        const fitW = (b.type === 'operator' ? 1 : FOOTPRINT) * cs;
+        const centerPx = this.sx(cxWorld) + cs / 2, centerPy = this.sy(cyWorld) + cs / 2;
+        label(text, centerPx, centerPy, t.buildingText, fitSize(text, fitW, Math.round(cs * 0.9)));
+      }
     }
 
     // JUICE — hover outline: a soft pulsing highlight on the cell under the cursor (or the whole

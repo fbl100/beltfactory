@@ -59,8 +59,11 @@ export function deserialize(json: string): GameState {
     misses: 0,
   };
   rebuildOccupancy(state); // derive the spatial index from the buildings map
-  // Operator pending inputs are transient (a value waiting for its pair) and the shape changed
-  // across versions — reset them rather than migrate; the operator just waits for fresh inputs.
-  for (const b of state.buildings.values()) if (b.type === 'operator') b.inputs = [];
+  // Operator pending inputs and a squarer's pending value are transient (a value mid-computation);
+  // reset them rather than migrate — the machine just waits for fresh input.
+  for (const b of state.buildings.values()) {
+    if (b.type === 'operator') b.inputs = [];
+    else if (b.type === 'square') b.pending = null;
+  }
   return state;
 }

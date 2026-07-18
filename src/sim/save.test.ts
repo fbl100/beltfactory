@@ -60,6 +60,16 @@ describe('save', () => {
     expect(() => deserialize('{"version":2}')).toThrow();
     expect(() => deserialize('{"version":99}')).toThrow();
   });
+  it('round-trips a squarer, resetting its transient pending value on load', () => {
+    const s = emptyState(7);
+    addBuilding(s, { type: 'square', ax: 3, ay: 3, dir: 'right', pending: 6n, everyTicks: 20, sinceProduce: 4 });
+    const r = deserialize(serialize(s));
+    const sq = [...r.buildings.values()].find((b) => b.type === 'square') as any;
+    expect(sq).toBeTruthy();
+    expect(sq.dir).toBe('right');
+    expect(sq.pending).toBeNull(); // transient — reset like operator inputs
+    expect(buildingAt(r, 4, 3)?.type).toBe('square'); // occupancy covers the 1x2 footprint
+  });
   it('accepts a v3 (pre-progression) save and defaults levelIndex to 0', () => {
     const v3: any = JSON.parse(serialize(sample()));
     delete v3.levelIndex;   // v3 had no progression index

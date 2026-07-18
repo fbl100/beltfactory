@@ -12,8 +12,8 @@ import { reconcileLevel } from './sim/progression';
 import type { GameState, Direction } from './sim/grid';
 import { DELTA, parseKey } from './sim/grid';
 import {
-  paintBeltLine, eraseLine, placeOperator, placeSplitter, placeTunnel,
-  canPlaceOperator, operatorFootprintCells, ROTATE_CW,
+  paintBeltLine, eraseLine, placeOperator, placeSplitter, placeTunnel, placeSquare,
+  canPlaceOperator, canPlaceSquare, operatorFootprintCells, squareFootprintCells, ROTATE_CW,
 } from './input/place';
 import { centerOf } from './sim/buildings';
 import { celebrate } from './ui/celebrate';
@@ -24,7 +24,7 @@ import { formatValue } from './render/format';
 import { cursorFor, PAN, PANNING } from './input/cursors';
 import { createSfx } from './audio/sfx';
 import { createSoundDirector } from './audio/director';
-import { apiMe, apiGetState, apiSaveState } from './net/api';
+import { apiMe, apiLogout, apiGetState, apiSaveState } from './net/api';
 
 const parent = document.getElementById('app')!;
 
@@ -45,7 +45,8 @@ function loadOrNewGame(saved: string | null): GameState {
 }
 
 async function boot() {
-  if (!(await apiMe())) await showLogin(parent);
+  let username = await apiMe();
+  if (!username) { await showLogin(parent); username = await apiMe(); }
   const state: GameState = loadOrNewGame(await apiGetState());
 
   let theme: Theme = DEFAULT_THEME;
@@ -100,6 +101,11 @@ async function boot() {
     // The HUD's 🔊 button drives the Sfx that lives here; it paints itself from the return value.
     onMuteToggle: () => { sfx.unlock(); return sfx.toggleMuted(); },
     isMuted: () => sfx.isMuted(),
+    username: username ?? 'player',
+    onLogout: () => {
+      if (!confirm('Log out? Your progress is saved.')) return;
+      apiLogout().then(() => location.reload()); // reload drops back to the login screen
+    },
   });
 
   const canvas = renderer['app'].canvas as HTMLCanvasElement;
@@ -177,6 +183,7 @@ async function boot() {
       sound.belt();
     }
     else if (tool === 'operator') { if (placeOperator(state, c.x, c.y, placeDir, currentOp())) { sound.built(); stampPainted(operatorFootprintCells(c.x, c.y, placeDir)); } paintMode = null; lastCell = null; }
+    else if (tool === 'square') { if (placeSquare(state, c.x, c.y, placeDir)) { sound.built(); stampPainted(squareFootprintCells(c.x, c.y, placeDir)); } paintMode = null; lastCell = null; }
     else if (tool === 'splitter') { if (placeSplitter(state, c.x, c.y, placeDir)) sound.built(); paintMode = null; lastCell = null; }
     else { placeTunnelTool(c); paintMode = null; lastCell = null; } // tunnel
     dirty = true; e.preventDefault();
@@ -322,19 +329,25 @@ async function boot() {
     }
     const cr = renderer.visibleChunkRange();
     ensureChunksInRange(state, mvpGenerator, cr.minCx, cr.minCy, cr.maxCx, cr.maxCy);
-    // placement ghost for the building tools
-    if (tool !== 'operator' || !hover) {
-      renderer.setPreview(null); // 1x1 tools + eraser: no 3x3 ghost (only the operator is a building now)
-    } else {
+    // placement ghost for the building tools (operator 1x3, squarer 1x2)
+    if (hover && tool === 'operator') {
       const ok = canPlaceOperator(state, hover.x, hover.y, placeDir);
       // A 1x3 operator's bar lies perpendicular to its output dir.
       const horizBar = placeDir === 'up' || placeDir === 'down';
-      const vertBar = placeDir === 'left' || placeDir === 'right';
       const w = horizBar ? 3 : 1;
-      const h = vertBar ? 3 : 1;
+      const h = horizBar ? 1 : 3;
       const ox = hover.x - (w === 3 ? 1 : 0);
       const oy = hover.y - (h === 3 ? 1 : 0);
-      renderer.setPreview({ type: tool, ox, oy, w, h, dir: placeDir, valid: ok });
+      renderer.setPreview({ type: 'operator', ox, oy, w, h, dir: placeDir, valid: ok });
+    } else if (hover && tool === 'square') {
+      // A 1x2 squarer: input on the hovered cell, output one cell along dir.
+      const ok = canPlaceSquare(state, hover.x, hover.y, placeDir);
+      const d = DELTA[placeDir];
+      const horiz = placeDir === 'left' || placeDir === 'right';
+      const ox = Math.min(hover.x, hover.x + d.dx), oy = Math.min(hover.y, hover.y + d.dy);
+      renderer.setPreview({ type: 'square', ox, oy, w: horiz ? 2 : 1, h: horiz ? 1 : 2, dir: placeDir, valid: ok });
+    } else {
+      renderer.setPreview(null); // 1x1 tools + eraser: no building ghost
     }
     renderer.setHover(hover);
     renderer.draw(state, paused ? 1 : Math.min(acc / tickMs, 1));
