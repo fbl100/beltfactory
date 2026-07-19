@@ -2,12 +2,17 @@ import { Application, Container, Graphics, Text } from 'pixi.js';
 import type { Renderer, Theme, Camera, Preview } from './renderer';
 import type { GameState, Direction } from '../sim/grid';
 import { parseKey, DELTA, DIRECTIONS, OPPOSITE } from '../sim/grid';
-import { buildingAt, portsOf, outCell, operatorOutCells, operatorTips, minerOutputs, dimsOf, centerOf, FOOTPRINT, acceptsItemAt, squareCells, squareOutCell } from '../sim/buildings';
+import { buildingAt, portsOf, operatorOutCells, operatorTips, minerOutputs, dimsOf, centerOf, FOOTPRINT, acceptsItemAt, squareCells, squareOutCell, feedsCell, assertNever } from '../sim/buildings';
+import type { Building, MinerBuilding, OperatorBuilding, TargetBuilding, SquareBuilding } from '../sim/buildings';
 import { CHUNK_SIZE } from '../sim/world';
 import { OPERATIONS } from '../content/operations';
 import { formatValue, fitSize } from './format';
 
 const WARN = 0xff5555; // "no output belt" indicator
+
+// The pooled label drawer created fresh each draw() (captures the per-frame text-pool cursor).
+// Passed into the per-building helpers so they can stamp centered numbers/symbols.
+type LabelFn = (text: string, cxp: number, cyp: number, fill: number, size: number) => void;
 
 // Item birth animation: pop in from nothing (~120ms) with a gentle overshoot to 1.15x that
 // settles back to 1.0 by ~200ms. Pure function of the item's age in ms.
@@ -221,7 +226,7 @@ export class PixiRenderer implements Renderer {
       const { w, h } = dimsOf(b);
       if (!(ax + w - 1 >= r.minX && ax <= r.maxX && ay + h - 1 >= r.minY && ay <= r.maxY)) continue;
       const px = this.sx(ax) + 2, py = this.sy(ay) + 2;
-      const body = b.type === 'miner' ? t.miner : (b.type === 'operator' || b.type === 'square') ? t.operator : t.sink;
+      const body = t.building[b.type];
       g.roundRect(px, py, w * cs - 4, h * cs - 4, t.cornerRadius).fill(body);
       // JUICE — hub fill meter: the target's body fills bottom-up with delivered/required, so she
       // watches the goal 'charge' with every correct number. (state.delivered is the level's count.)
@@ -239,60 +244,14 @@ export class PixiRenderer implements Renderer {
         g.roundRect(px, py, w * cs - 4, h * cs - 4, t.cornerRadius).fill({ color: 0xffffff, alpha: 0.05 + 0.22 * charge });
       }
 
-      const c = centerOf(b), cxWorld = c.x, cyWorld = c.y;
-      if (b.type === 'miner') {
-        // wide output: an arrow at each connected output cell, a faint pip at the rest
-        for (const o of minerOutputs(b)) {
-          if (this.carrierPresent(state, o)) this.arrow(g, this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.2, o.dir, t.arrow, 1);
-          else g.circle(this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.06).fill({ color: t.arrow, alpha: 0.3 });
-        }
-      } else if (b.type === 'square') {
-        // squarer (1x2): a number enters the input end and leaves the output end squared. Draw an
-        // input arrow + an output arrow (WARN if nothing receives it), and throb the input if unfed.
-        const { input } = squareCells(b);
-        const oc = squareOutCell(b);
-        const hasOut = this.carrierPresent(state, oc);
-        this.arrow(g, this.sx(oc.x) + cs / 2, this.sy(oc.y) + cs / 2, cs * 0.28, b.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
-        this.arrow(g, this.sx(input.x) + cs / 2, this.sy(input.y) + cs / 2, cs * 0.18, b.dir, t.arrow, 0.55);
-        if (!this.tipHasFeeder(state, input.x, input.y) && !this.graced(input.x, input.y)) {
-          const throb = 0.4 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.4..0.8 pulse
-          g.circle(this.sx(input.x) + cs / 2, this.sy(input.y) + cs / 2, cs * 0.42).stroke({ width: cs * 0.09, color: WARN, alpha: throb });
-        }
-        // 'x²' label centered on the 1x2 bounding box
-        label('x²', this.sx(ax) + w * cs / 2, this.sy(ay) + h * cs / 2, t.buildingText, Math.round(cs * 0.5));
-      } else {
-        // operator has two output edges (either can feed a belt); warn only if NEITHER does.
-        const outs = b.type === 'operator' ? operatorOutCells(b) : [outCell(b)];
-        const hasOut = b.type === 'target' || outs.some((o) => this.carrierPresent(state, o));
-        for (const port of portsOf(b)) {
-          const d = DELTA[port.side];
-          const ex = this.sx(cxWorld + d.dx) + cs / 2, ey = this.sy(cyWorld + d.dy) + cs / 2;
-          if (port.role === 'out') this.arrow(g, ex, ey, cs * 0.28, port.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
-          else this.arrow(g, ex, ey, cs * 0.18, port.dir, t.arrow, 0.55);
-          // labeled ports (operator A / B input tips) — nudged toward the body so the label
-          // doesn't sit on the port arrow. (Rudimentary; a skin pass can lay this out nicely.)
-          if (port.label) label(port.label, ex - d.dx * cs * 0.3, ey - d.dy * cs * 0.3, t.buildingText, Math.max(8, Math.round(cs * 0.22)));
-        }
-        // dead-end warning: an operator input tip fed by nothing throbs red (unless just placed / graced)
-        if (b.type === 'operator') {
-          const tips = operatorTips(b);
-          const throb = 0.4 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.4..0.8 pulse
-          for (const tip of [tips.A, tips.B]) {
-            if (this.tipHasFeeder(state, tip.x, tip.y) || this.graced(tip.x, tip.y)) continue;
-            g.circle(this.sx(tip.x) + cs / 2, this.sy(tip.y) + cs / 2, cs * 0.42)
-              .stroke({ width: cs * 0.09, color: WARN, alpha: throb });
-          }
-        }
-      }
-
-      // Center label (the squarer draws its own 'x²' above; skip it here).
-      if (b.type !== 'square') {
-        const text = b.type === 'miner' ? formatValue(b.value)
-          : b.type === 'operator' ? (OPERATIONS[b.op]?.symbol ?? '?')
-          : formatValue(b.target);
-        const fitW = (b.type === 'operator' ? 1 : FOOTPRINT) * cs;
-        const centerPx = this.sx(cxWorld) + cs / 2, centerPy = this.sy(cyWorld) + cs / 2;
-        label(text, centerPx, centerPy, t.buildingText, fitSize(text, fitW, Math.round(cs * 0.9)));
+      // Per-type foreground: ports/output arrows, dead-end throbs, and the center label. Each helper
+      // owns its full drawing (and its own center label — the squarer draws 'x²' itself).
+      switch (b.type) {
+        case 'miner': this.drawMiner(b, state, g, label); break;
+        case 'square': this.drawSquare(b, state, g, nowMs, label); break;
+        case 'operator': this.drawOperator(b, state, g, nowMs, label); break;
+        case 'target': this.drawTarget(b, g, label); break;
+        default: assertNever(b);
       }
     }
 
@@ -351,22 +310,79 @@ export class PixiRenderer implements Renderer {
     return state.belts.has(k) || state.splitters.has(k) || state.tunnels.has(k);
   }
 
-  // Would anything actually deliver an item onto (tx,ty)? A belt pointing in, a splitter (round-robin
-  // can send any way), a tunnel exit aimed here, an adjacent miner (wide source), or an operator whose
-  // output cell lands here. Used only to decide whether an operator input tip is "fed by nothing".
-  private tipHasFeeder(state: GameState, tx: number, ty: number): boolean {
-    for (const s of DIRECTIONS) {
-      const nx = tx + DELTA[s].dx, ny = ty + DELTA[s].dy, into = OPPOSITE[s]; // dir from neighbor back to tip
-      const belt = state.belts.get(`${nx},${ny}`);
-      if (belt && belt.dir === into) return true;
-      if (state.splitters.has(`${nx},${ny}`)) return true;
-      const tun = state.tunnels.get(`${nx},${ny}`);
-      if (tun && tun.role === 'out' && tun.dir === into) return true;
-      const nb = buildingAt(state, nx, ny);
-      if (nb && nb.type === 'miner') return true;
-      if (nb && nb.type === 'operator' && operatorOutCells(nb).some((o) => o.x === tx && o.y === ty)) return true;
+  // Miner (3x3, wide source): an arrow at each connected output cell, a faint pip at the rest,
+  // plus the mined value centered.
+  private drawMiner(b: MinerBuilding, state: GameState, g: Graphics, label: LabelFn): void {
+    const t = this.theme, cs = this.cam.zoom;
+    // wide output: an arrow at each connected output cell, a faint pip at the rest
+    for (const o of minerOutputs(b)) {
+      if (this.carrierPresent(state, o)) this.arrow(g, this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.2, o.dir, t.arrow, 1);
+      else g.circle(this.sx(o.x) + cs / 2, this.sy(o.y) + cs / 2, cs * 0.06).fill({ color: t.arrow, alpha: 0.3 });
     }
-    return false;
+    const c = centerOf(b), text = formatValue(b.value);
+    label(text, this.sx(c.x) + cs / 2, this.sy(c.y) + cs / 2, t.buildingText, fitSize(text, FOOTPRINT * cs, Math.round(cs * 0.9)));
+  }
+
+  // Squarer (1x2): a number enters the input end and leaves the output end squared. Draw an
+  // input arrow + an output arrow (WARN if nothing receives it), throb the input if unfed, and
+  // draw its own 'x²' label (so the shared center-label path skips it).
+  private drawSquare(b: SquareBuilding, state: GameState, g: Graphics, nowMs: number, label: LabelFn): void {
+    const t = this.theme, cs = this.cam.zoom;
+    const { w, h } = dimsOf(b);
+    const { input } = squareCells(b);
+    const oc = squareOutCell(b);
+    const hasOut = this.carrierPresent(state, oc);
+    this.arrow(g, this.sx(oc.x) + cs / 2, this.sy(oc.y) + cs / 2, cs * 0.28, b.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
+    this.arrow(g, this.sx(input.x) + cs / 2, this.sy(input.y) + cs / 2, cs * 0.18, b.dir, t.arrow, 0.55);
+    if (!feedsCell(state, input.x, input.y) && !this.graced(input.x, input.y)) {
+      const throb = 0.4 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.4..0.8 pulse
+      g.circle(this.sx(input.x) + cs / 2, this.sy(input.y) + cs / 2, cs * 0.42).stroke({ width: cs * 0.09, color: WARN, alpha: throb });
+    }
+    // 'x²' label centered on the 1x2 bounding box
+    label('x²', this.sx(b.ax) + w * cs / 2, this.sy(b.ay) + h * cs / 2, t.buildingText, Math.round(cs * 0.5));
+  }
+
+  // Operator (1x3 bar): input tips + two output edges (either can feed a belt); warn only if NEITHER
+  // does. Ports drawn via the shared helper; each unfed tip throbs red. Center shows the op symbol.
+  private drawOperator(b: OperatorBuilding, state: GameState, g: Graphics, nowMs: number, label: LabelFn): void {
+    const t = this.theme, cs = this.cam.zoom;
+    const c = centerOf(b);
+    const hasOut = operatorOutCells(b).some((o) => this.carrierPresent(state, o));
+    this.drawPorts(b, c.x, c.y, g, hasOut, label);
+    // dead-end warning: an operator input tip fed by nothing throbs red (unless just placed / graced)
+    const tips = operatorTips(b);
+    const throb = 0.4 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.4..0.8 pulse
+    for (const tip of [tips.A, tips.B]) {
+      if (feedsCell(state, tip.x, tip.y) || this.graced(tip.x, tip.y)) continue;
+      g.circle(this.sx(tip.x) + cs / 2, this.sy(tip.y) + cs / 2, cs * 0.42)
+        .stroke({ width: cs * 0.09, color: WARN, alpha: throb });
+    }
+    const text = OPERATIONS[b.op]?.symbol ?? '?';
+    label(text, this.sx(c.x) + cs / 2, this.sy(c.y) + cs / 2, t.buildingText, fitSize(text, 1 * cs, Math.round(cs * 0.9)));
+  }
+
+  // Target hub (3x3): input ports only (it consumes, so ports never warn). Center shows the goal value.
+  private drawTarget(b: TargetBuilding, g: Graphics, label: LabelFn): void {
+    const t = this.theme, cs = this.cam.zoom;
+    const c = centerOf(b);
+    this.drawPorts(b, c.x, c.y, g, true, label); // hasOut=true: target has no output port, never warns
+    const text = formatValue(b.target);
+    label(text, this.sx(c.x) + cs / 2, this.sy(c.y) + cs / 2, t.buildingText, fitSize(text, FOOTPRINT * cs, Math.round(cs * 0.9)));
+  }
+
+  // Shared port arrows (operator & target): an out arrow (WARN when unfed via hasOut) or a faint in
+  // arrow per port, plus any port label (operator A / B input tips) nudged toward the body.
+  private drawPorts(b: Building, cxWorld: number, cyWorld: number, g: Graphics, hasOut: boolean, label: LabelFn): void {
+    const t = this.theme, cs = this.cam.zoom;
+    for (const port of portsOf(b)) {
+      const d = DELTA[port.side];
+      const ex = this.sx(cxWorld + d.dx) + cs / 2, ey = this.sy(cyWorld + d.dy) + cs / 2;
+      if (port.role === 'out') this.arrow(g, ex, ey, cs * 0.28, port.dir, hasOut ? t.arrow : WARN, hasOut ? 1 : 0.9);
+      else this.arrow(g, ex, ey, cs * 0.18, port.dir, t.arrow, 0.55);
+      // labeled ports (operator A / B input tips) — nudged toward the body so the label
+      // doesn't sit on the port arrow. (Rudimentary; a skin pass can lay this out nicely.)
+      if (port.label) label(port.label, ex - d.dx * cs * 0.3, ey - d.dy * cs * 0.3, t.buildingText, Math.max(8, Math.round(cs * 0.22)));
+    }
   }
 }
 

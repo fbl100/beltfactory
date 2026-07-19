@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   paintBeltLine, removeCell, eraseAt, eraseLine,
-  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator, placeSplitter, placeTunnel, placeSquare,
+  canPlaceOperator, placeOperator, placeSplitter, placeTunnel, placeSquare,
 } from './place';
 import { emptyState, beltAt, splitterAt, tunnelAt, cellKey } from '../sim/grid';
 import { addBuilding, buildingAt } from '../sim/buildings';
@@ -51,28 +51,6 @@ describe('input.belts (footprint-aware)', () => {
 });
 
 describe('input.buildings', () => {
-  it('footprintClear: true over bare ground/nodes, false over a belt', () => {
-    const s = emptyState(1);
-    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
-    expect(footprintClear(s, 5, 5)).toBe(true); // a node does not block
-    paintBeltLine(s, 5, 5, 5, 5, 'right');
-    expect(footprintClear(s, 5, 5)).toBe(false);
-  });
-  it('canPlaceMiner requires a node under the center', () => {
-    const s = emptyState(1);
-    expect(canPlaceMiner(s, 5, 5)).toBe(false);
-    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
-    expect(canPlaceMiner(s, 5, 5)).toBe(true);
-  });
-  it('placeMiner caches the node value and rejects when there is no node', () => {
-    const s = emptyState(1);
-    expect(placeMiner(s, 5, 5, 'right')).toBe(false);
-    s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
-    expect(placeMiner(s, 5, 5, 'right')).toBe(true);
-    const m = buildingAt(s, 5, 5);
-    expect(m?.type).toBe('miner');
-    expect((m as any).value).toBe(7n);
-  });
   it('placeOperator rejects on overlap', () => {
     const s = emptyState(1);
     expect(canPlaceOperator(s, 5, 5, 'right')).toBe(true);
@@ -148,7 +126,8 @@ describe('input.erase', () => {
   it('refuses to erase a miner (miners are automatic + permanent)', () => {
     const s = emptyState(1);
     s.nodes.set(cellKey(5, 5), { x: 5, y: 5, value: 7n });
-    expect(placeMiner(s, 5, 5, 'right')).toBe(true);
+    // Miners are auto-placed (world.ts ensureMiners); place one directly for this test.
+    expect(addBuilding(s, { type: 'miner', ax: 4, ay: 4, dir: 'right', value: 7n, everyTicks: 5, sinceEmit: 0 })).toBe(true);
     expect(eraseAt(s, 5, 5)).toBe(false);      // center cell
     expect(eraseAt(s, 4, 4)).toBe(false);      // a non-anchor footprint cell
     expect(buildingAt(s, 5, 5)?.type).toBe('miner');

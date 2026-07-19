@@ -1,9 +1,9 @@
 import type { GameState, Direction } from '../sim/grid';
-import { beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, nodeAt, RIGHT_OF, DELTA } from '../sim/grid';
-import type { MinerBuilding, OperatorBuilding, SquareBuilding } from '../sim/buildings';
-import { isBlocked, buildingAt, addBuilding, removeBuildingAt } from '../sim/buildings';
+import { beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, RIGHT_OF, DELTA } from '../sim/grid';
+import type { Building, OperatorBuilding, SquareBuilding } from '../sim/buildings';
+import { isBlocked, buildingAt, addBuilding, removeBuildingAt, isHorizontal } from '../sim/buildings';
 import type { OpId } from '../content/operations';
-import { MINER_EVERY_TICKS, OPERATOR_EVERY_TICKS } from '../content/config';
+import { OPERATOR_EVERY_TICKS } from '../content/config';
 
 // Rotating a facing clockwise (R key) reuses the direction algebra.
 export const ROTATE_CW = RIGHT_OF;
@@ -73,33 +73,14 @@ export function removeCell(state: GameState, x: number, y: number): boolean {
   return true;
 }
 
-// ---------- buildings (3x3, centered on the cursor) ----------
+// ---------- buildings (1x3 operator, centered on the cursor) ----------
 
-// The nine cells of a 3x3 footprint centered on (cx,cy) — anchor = (cx-1, cy-1).
-export function footprintCells(cx: number, cy: number): { x: number; y: number }[] {
-  const cells: { x: number; y: number }[] = [];
-  for (let dy = -1; dy <= 1; dy++)
-    for (let dx = -1; dx <= 1; dx++)
-      cells.push({ x: cx + dx, y: cy + dy });
-  return cells;
-}
-
-export function footprintClear(state: GameState, cx: number, cy: number): boolean {
-  return footprintCells(cx, cy).every((c) => !isBlocked(state, c.x, c.y));
-}
-
-export function canPlaceMiner(state: GameState, cx: number, cy: number): boolean {
-  return footprintClear(state, cx, cy) && nodeAt(state, cx, cy) !== undefined;
-}
-
-// A 1x3 operator centered on (cx,cy), oriented by its output dir (bar perpendicular to the output):
-// output up/down -> a horizontal bar; output left/right -> a vertical bar.
-function operatorHoriz(dir: Direction): boolean { return dir === 'up' || dir === 'down'; }
-
+// A 1x3 operator centered on (cx,cy), oriented by its output dir. The bar sits PERPENDICULAR
+// to the output, so the bar is horizontal when the output dir is up/down — i.e. !isHorizontal(dir).
 export function operatorFootprintCells(cx: number, cy: number, dir: Direction): { x: number; y: number }[] {
-  const horiz = operatorHoriz(dir);
+  const barHoriz = !isHorizontal(dir); // bar perpendicular to flow: up/down output => horizontal bar
   const cells: { x: number; y: number }[] = [];
-  for (let i = -1; i <= 1; i++) cells.push(horiz ? { x: cx + i, y: cy } : { x: cx, y: cy + i });
+  for (let i = -1; i <= 1; i++) cells.push(barHoriz ? { x: cx + i, y: cy } : { x: cx, y: cy + i });
   return cells;
 }
 
@@ -107,18 +88,13 @@ export function canPlaceOperator(state: GameState, cx: number, cy: number, dir: 
   return operatorFootprintCells(cx, cy, dir).every((c) => !isBlocked(state, c.x, c.y));
 }
 
-export function placeMiner(state: GameState, cx: number, cy: number, dir: Direction, everyTicks = MINER_EVERY_TICKS): boolean {
-  const node = nodeAt(state, cx, cy);
-  if (!node || !footprintClear(state, cx, cy)) return false;
-  const b: MinerBuilding = { type: 'miner', ax: cx - 1, ay: cy - 1, dir, value: node.value, everyTicks, sinceEmit: 0 };
-  return addBuilding(state, b);
-}
-
 export function placeOperator(state: GameState, cx: number, cy: number, dir: Direction, op: OpId = 'add'): boolean {
   if (!canPlaceOperator(state, cx, cy, dir)) return false;
-  // Anchor = top-left of the bounding box: a horizontal bar starts one cell left; a vertical bar one up.
-  const ax = operatorHoriz(dir) ? cx - 1 : cx;
-  const ay = operatorHoriz(dir) ? cy : cy - 1;
+  // Anchor = top-left of the bounding box. Bar is perpendicular to output: a horizontal bar
+  // (output up/down => !isHorizontal) starts one cell left; a vertical bar one up.
+  const barHoriz = !isHorizontal(dir);
+  const ax = barHoriz ? cx - 1 : cx;
+  const ay = barHoriz ? cy : cy - 1;
   const b: OperatorBuilding = { type: 'operator', ax, ay, dir, op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
   return addBuilding(state, b);
 }
@@ -144,6 +120,10 @@ export function placeSquare(state: GameState, cx: number, cy: number, dir: Direc
 
 // ---------- erase ----------
 
+// Which building types the eraser may remove. Exhaustive over Building['type'] so any future
+// building type must consciously opt into (or out of) erasability at compile time.
+const ERASABLE = { miner: false, target: false, operator: true, square: true } as const satisfies Record<Building['type'], boolean>;
+
 // Erase a belt, or an operator/squarer (from any of its cells). The target hub and the automatic miners
 // are protected: a 9-year-old can't delete the goal, and miners are permanent (they auto-respawn
 // on every deposit). Nodes are never removed.
@@ -156,7 +136,7 @@ export function eraseAt(state: GameState, x: number, y: number): boolean {
     return true;
   }
   const b = buildingAt(state, x, y);
-  if (b && (b.type === 'operator' || b.type === 'square')) return removeBuildingAt(state, x, y);
+  if (b && ERASABLE[b.type]) return removeBuildingAt(state, x, y);
   return false;
 }
 

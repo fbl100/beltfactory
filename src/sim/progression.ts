@@ -1,19 +1,26 @@
 import type { GameState } from './grid';
 import { cellKey } from './grid';
-import type { Building, TargetBuilding } from './buildings';
+import type { TargetBuilding } from './buildings';
 import { isBlocked, countMachines } from './buildings';
 import { ensureMiners, clearBuild, resetDeposits } from './world';
 import { levelAt, ENDLESS_START, LEVELS } from '../content/levels';
-import type { GrantNode } from '../content/levels';
+import type { GrantNode, Level } from '../content/levels';
 import { starsFor } from '../content/config';
 
 // Progression is pure sim state: levelAt(state.levelIndex, state.seed, state.mode) is the single source of truth
 // for the current goal (authored for the campaign, deterministically generated in endless mode), and
 // the target building's target/required are kept in sync with it. No rendering deps. Deterministic.
 
-export function targetHub(state: GameState): Building | undefined {
+export function targetHub(state: GameState): TargetBuilding | undefined {
   for (const b of state.buildings.values()) if (b.type === 'target') return b;
   return undefined;
+}
+
+// The current level's goal fields, applied identically wherever we (re)point the hub.
+function applyLevelToHub(hub: TargetBuilding, lvl: Level): void {
+  hub.target = lvl.target;
+  hub.required = lvl.required;
+  hub.par = lvl.par;
 }
 
 // A delivered value that was a valid target on an EARLIER level is stale leftover output from
@@ -28,12 +35,12 @@ export function isStaleTargetValue(state: GameState, value: bigint): boolean {
 
 // Point the target hub at the current level's goal. levelAt is authored for the campaign and
 // deterministically generated in endless mode — NO upper clamp, so levels grow without bound.
-export function syncTargetToLevel(state: GameState): Building | undefined {
+export function syncTargetToLevel(state: GameState): TargetBuilding | undefined {
   if (!Number.isFinite(state.levelIndex) || state.levelIndex < 0) state.levelIndex = 0;
   state.levelIndex = Math.trunc(state.levelIndex);
   const lvl = levelAt(state.levelIndex, state.seed, state.mode);
   const hub = targetHub(state);
-  if (hub && hub.type === 'target') { hub.target = lvl.target; hub.required = lvl.required; hub.par = lvl.par; }
+  if (hub) applyLevelToHub(hub, lvl);
   return hub;
 }
 
@@ -54,7 +61,7 @@ export function reconcileLevel(state: GameState): void {
   if (state.status === 'won') state.status = 'playing';
   // A migrated/edited save can carry a full-or-over bar; snap it to a clean start so it doesn't
   // instant-advance on the first tick (checkLevel advances at >=).
-  if (hub && hub.type === 'target' && state.delivered >= hub.required) state.delivered = 0;
+  if (hub && state.delivered >= hub.required) state.delivered = 0;
   ensureMiners(state); // backfill an automatic miner on every deposit (incl. old saves without one)
   if (!(state.bestStars instanceof Map)) state.bestStars = new Map();
   state.lastStars = 0;
@@ -106,9 +113,7 @@ export function pruneBestStars(state: GameState): void {
 // factory to the next level — bumps the goal, resets the count, drops any new deposit. Endless:
 // there is always a next level (levelAt generates one), so the game never "wins", it just keeps
 // going. Kept out of the move loop so the target value stays stable for the whole tick.
-export function advanceLevel(state: GameState, hub: Building): void {
-  if (hub.type !== 'target') return;
-
+export function advanceLevel(state: GameState, hub: TargetBuilding): void {
   // Score the endless puzzle she just cleared BEFORE mutating anything. It began on a cleared board,
   // so the current machine count IS this puzzle's from-scratch cost — compare it straight to par.
   // (Campaign levels aren't golfed; see isGolfLevel.)
@@ -134,9 +139,7 @@ export function advanceLevel(state: GameState, hub: Building): void {
 
   state.levelIndex++;
   const next = levelAt(state.levelIndex, state.seed, state.mode);
-  hub.target = next.target;
-  hub.required = next.required;
-  hub.par = next.par;
+  applyLevelToHub(hub, next);
   state.delivered = 0;
   // Endless puzzles start FRESH: wipe the built factory so each target is a self-contained golf
   // puzzle scored from an empty board. (The campaign stays cumulative — its "reuse the 2" design.)
@@ -154,9 +157,7 @@ export function advanceLevel(state: GameState, hub: Building): void {
 function gotoLevelFresh(state: GameState, hub: TargetBuilding, index: number): void {
   state.levelIndex = index;
   const lvl = levelAt(index, state.seed, state.mode);
-  hub.target = lvl.target;
-  hub.required = lvl.required;
-  hub.par = lvl.par;
+  applyLevelToHub(hub, lvl);
   state.delivered = 0;
   clearBuild(state); // fresh board (also resets delivered/misses and restores miners)
   // Easy: this level's sources differ from the current board's, so lay down ITS hand (replaying a
@@ -187,7 +188,7 @@ export function skipTutorial(state: GameState): void {
 export function startReplay(state: GameState, index: number): void {
   if (!isGolfLevel(index)) return;
   const hub = targetHub(state);
-  if (!hub || hub.type !== 'target') return;
+  if (!hub) return;
   if (state.replayReturn === null) state.replayReturn = state.levelIndex; // keep the TRUE home across replay-to-replay
   gotoLevelFresh(state, hub, index);
 }

@@ -14,9 +14,9 @@ export interface Theme {
   grid: number;
   belt: number;
   beltEdge: number;
-  miner: number;
-  operator: number;
-  sink: number;        // the target / hub body
+  // Per-building-type color. Keys are exactly 'miner' | 'operator' | 'target' | 'square'.
+  // ('sink' from the old scalar field is now 'target' — the target/hub body color.)
+  building: Record<BuildingType, number>;
   node: number;
   nodeText: number;
   item: number;

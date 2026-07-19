@@ -3,7 +3,7 @@ import { DELTA, DIRECTIONS, OPPOSITE, beltAt, splitterAt, tunnelAt } from './gri
 import type { Item } from './items';
 import type { SplitterCell } from './entities';
 import type { Direction } from './grid';
-import { minerOutputs, buildingAt, operatorTips, operatorOutCells, acceptKindAt, squareOutCell } from './buildings';
+import { minerOutputs, buildingAt, operatorTips, operatorOutCells, acceptKindAt, squareOutCell, assertNever } from './buildings';
 import type { OperatorBuilding, TargetBuilding, SquareBuilding } from './buildings';
 import { createItem } from './items';
 import { advanceLevel, isStaleTargetValue } from './progression';
@@ -127,41 +127,47 @@ function advanceBeltItem(state: GameState, it: Item, dir: Direction, moved: Set<
   const tx = it.x + dx, ty = it.y + dy;
   const kind = acceptKindAt(state, tx, ty);
 
-  if (kind === 'carrier') {
-    // advance downstream-first when the cell ahead frees
-    if (!occupied(state, tx, ty, removed)) { it.x = tx; it.y = ty; moved.add(it.id); return true; }
-    return false; // blocked this pass; leave unmarked to retry as downstream drains
-  }
+  switch (kind) {
+    case 'carrier': {
+      // advance downstream-first when the cell ahead frees
+      if (!occupied(state, tx, ty, removed)) { it.x = tx; it.y = ty; moved.add(it.id); return true; }
+      return false; // blocked this pass; leave unmarked to retry as downstream drains
+    }
 
-  if (kind === 'operator-tip') {
-    // Keep at most one pending value PER tip so two items from the SAME belt can't pair (which
-    // produced e.g. 3×3=9 instead of 2×3=6). A full tip is transient back-pressure, not a dead end.
-    const b = buildingAt(state, tx, ty) as OperatorBuilding;
-    const tips = operatorTips(b);
-    const tip = tx === tips.A.x && ty === tips.A.y ? 'A' : 'B';
-    if (!b.inputs.some((p) => p.tip === tip)) { b.inputs.push({ tip, value: it.value }); removed.add(it.id); return true; }
-    moved.add(it.id); return false; // that tip already full
-  }
+    case 'operator-tip': {
+      // Keep at most one pending value PER tip so two items from the SAME belt can't pair (which
+      // produced e.g. 3×3=9 instead of 2×3=6). A full tip is transient back-pressure, not a dead end.
+      const b = buildingAt(state, tx, ty) as OperatorBuilding;
+      const tips = operatorTips(b);
+      const tip = tx === tips.A.x && ty === tips.A.y ? 'A' : 'B';
+      if (!b.inputs.some((p) => p.tip === tip)) { b.inputs.push({ tip, value: it.value }); removed.add(it.id); return true; }
+      moved.add(it.id); return false; // that tip already full
+    }
 
-  if (kind === 'target-port') {
-    // Count only; the level-up / win decision happens once per tick in checkLevel(), after all
-    // movement settles — see step(). A value that was a target on an earlier level is stale leftover
-    // output from the pre-advance factory, not a mistake — don't punish it.
-    const b = buildingAt(state, tx, ty) as TargetBuilding;
-    if (it.value === b.target) state.delivered++;
-    else if (!isStaleTargetValue(state, it.value)) state.misses++;
-    removed.add(it.id); return true;
-  }
+    case 'target-port': {
+      // Count only; the level-up / win decision happens once per tick in checkLevel(), after all
+      // movement settles — see step(). A value that was a target on an earlier level is stale leftover
+      // output from the pre-advance factory, not a mistake — don't punish it.
+      const b = buildingAt(state, tx, ty) as TargetBuilding;
+      if (it.value === b.target) state.delivered++;
+      else if (!isStaleTargetValue(state, it.value)) state.misses++;
+      removed.add(it.id); return true;
+    }
 
-  if (kind === 'square-input') {
-    // The squarer holds ONE pending value; produce() squares it out the far end. A full squarer is
-    // transient back-pressure (item waits), not a dead end.
-    const b = buildingAt(state, tx, ty) as SquareBuilding;
-    if (b.pending === null) { b.pending = it.value; removed.add(it.id); return true; }
-    moved.add(it.id); return false; // still holding a value
-  }
+    case 'square-input': {
+      // The squarer holds ONE pending value; produce() squares it out the far end. A full squarer is
+      // transient back-pressure (item waits), not a dead end.
+      const b = buildingAt(state, tx, ty) as SquareBuilding;
+      if (b.pending === null) { b.pending = it.value; removed.add(it.id); return true; }
+      moved.add(it.id); return false; // still holding a value
+    }
 
-  moved.add(it.id); return false; // 'none': empty ground / node-only / miner face / operator center / edge
+    case 'none':
+      moved.add(it.id); return false; // 'none': empty ground / node-only / miner face / operator center / edge
+
+    default:
+      return assertNever(kind);
+  }
 }
 
 // An item on a tunnel entrance dives to the nearest matching exit ahead.

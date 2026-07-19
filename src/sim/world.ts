@@ -2,7 +2,7 @@ import type { GameState, Direction } from './grid';
 import { cellKey, emptyState, setBelt, setSplitter, setTunnel } from './grid';
 import type { ResourceNode } from './entities';
 import type { Building } from './buildings';
-import { isBlocked, addBuilding, buildingAt, rebuildOccupancy } from './buildings';
+import { isBlocked, addBuilding, buildingAt, rebuildOccupancy, assertNever } from './buildings';
 import type { OpId } from '../content/operations';
 import type { Mode } from '../content/levels';
 import { startIndexForMode } from '../content/levels';
@@ -35,15 +35,22 @@ export function chunkOfCell(x: number, y: number): { cx: number; cy: number } {
 // value of the node under their center; a nodeless authored miner is skipped.
 function instantiateBuilding(state: GameState, ab: AuthoredBuilding): void {
   let b: Building;
-  if (ab.type === 'miner') {
-    const node = state.nodes.get(cellKey(ab.x + 1, ab.y + 1)); // center = anchor + (1,1)
-    if (!node) return;
-    b = { type: 'miner', ax: ab.x, ay: ab.y, dir: ab.dir, value: node.value, everyTicks: MINER_EVERY_TICKS, sinceEmit: 0 };
-  } else if (ab.type === 'operator') {
-    b = { type: 'operator', ax: ab.x, ay: ab.y, dir: ab.dir, op: ab.op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
-  } else {
-    // par is a placeholder here; progression.syncTargetToLevel sets the real par from the active level.
-    b = { type: 'target', ax: ab.x, ay: ab.y, dir: ab.dir, target: ab.target, required: ab.required, par: 0 };
+  switch (ab.type) {
+    case 'miner': {
+      const node = state.nodes.get(cellKey(ab.x + 1, ab.y + 1)); // center = anchor + (1,1)
+      if (!node) return;
+      b = { type: 'miner', ax: ab.x, ay: ab.y, dir: ab.dir, value: node.value, everyTicks: MINER_EVERY_TICKS, sinceEmit: 0 };
+      break;
+    }
+    case 'operator':
+      b = { type: 'operator', ax: ab.x, ay: ab.y, dir: ab.dir, op: ab.op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
+      break;
+    case 'target':
+      // par is a placeholder here; progression.syncTargetToLevel sets the real par from the active level.
+      b = { type: 'target', ax: ab.x, ay: ab.y, dir: ab.dir, target: ab.target, required: ab.required, par: 0 };
+      break;
+    default:
+      return assertNever(ab);
   }
   addBuilding(state, b); // rejects on footprint conflict, so resume stays non-destructive
 }

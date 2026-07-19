@@ -7,12 +7,12 @@
 // A later skinning pass can restyle every glyph here in one place.
 import type { Tool } from '../ui/hud';
 import type { OpId } from '../content/operations';
+import { OPERATIONS } from '../content/operations';
 
 // Built-in keywords for panning — universally understood, no reason to reinvent.
 export const PAN = 'grab';
 export const PANNING = 'grabbing';
 
-const OP_GLYPH: Record<OpId, string> = { add: '+', subtract: '−', multiply: '×', divide: '÷' };
 const ERASER_PINK = '#ff5ea8';
 
 // Wrap an SVG string as a CSS cursor value with an integer hotspot and a keyword fallback.
@@ -57,7 +57,7 @@ function tunnelCursor(): string {
 
 function operatorCursor(op: OpId): string {
   // The LIVE op glyph in a soft circle — doubles as a reminder of which operator you'll drop.
-  const g = OP_GLYPH[op] ?? '?';
+  const g = OPERATIONS[op]?.symbol ?? '?';
   const body = `<circle cx='16' cy='16' r='11' fill='#0b132b'/><circle cx='16' cy='16' r='9'
     fill='#ffffff'/><text x='16' y='17' text-anchor='middle' dominant-baseline='central'
     font-family='system-ui,sans-serif' font-size='16' font-weight='700' fill='#0b132b'>${g}</text>`;

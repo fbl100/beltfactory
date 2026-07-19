@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { emptyState, cellKey, setBelt, setSplitter, setTunnel } from './grid';
 import type { Direction } from './grid';
 import {
-  centerOf, footprintOf, coversCell, outCell, minerOutputs, inPortSlot, portsOf,
+  centerOf, footprintOf, coversCell, outCell, minerOutputs, targetInPortSlot, portsOf,
   dimsOf, operatorTips, operatorOutCells, squareCells, squareOutCell,
   addBuilding, removeBuildingAt, buildingAt, isBlocked, rebuildOccupancy,
-  acceptKindAt, acceptsItemAt,
+  acceptKindAt, acceptsItemAt, feedsCell,
 } from './buildings';
 import type { SquareBuilding } from './buildings';
 import type { MinerBuilding, OperatorBuilding, TargetBuilding } from './buildings';
@@ -102,11 +102,6 @@ describe('building geometry', () => {
     expect(outCell(miner(0, 0, 'down'))).toEqual({ x: 1, y: 3 });
     expect(outCell(miner(0, 0, 'left'))).toEqual({ x: -1, y: 1 });
   });
-  it('miner has no in-ports', () => {
-    const b = miner(0, 0, 'right');
-    expect(inPortSlot(b, 1, 0)).toBe(-1);
-    expect(inPortSlot(b, 3, 1)).toBe(-1);
-  });
   it('miner emits from all four sides (12 cells)', () => {
     const outs = minerOutputs(miner(0, 0, 'right'));
     expect(outs.length).toBe(12);
@@ -125,7 +120,7 @@ describe('building geometry', () => {
     expect([tips.A, tips.B].map((p) => `${p.x},${p.y}`).sort()).toEqual(['0,0', '0,2']);
     expect(outCell(b)).toEqual({ x: 1, y: 1 }); // preferred output = the facing (right) side
     expect(operatorOutCells(b).map((o) => `${o.x},${o.y}`).sort()).toEqual(['-1,1', '1,1']); // either long edge
-    expect(inPortSlot(b, 0, 0)).toBe(-1); // operators use tip delivery (tick), not inPortSlot
+    // operators use tip delivery (tick), not a target-style in-port; acceptKindAt reports 'operator-tip'.
   });
   it('operator bar orients perpendicular to the output (dir up -> horizontal bar)', () => {
     const b = op(0, 0, 'up'); // horizontal bar: cells (0,0),(1,0),(2,0); center (1,0)
@@ -138,11 +133,11 @@ describe('building geometry', () => {
   });
   it('target accepts on all four edges but not corners', () => {
     const b = target(0, 0, 'right'); // center (1,1)
-    expect(inPortSlot(b, 0, 1)).toBe(0);
-    expect(inPortSlot(b, 2, 1)).toBe(0);
-    expect(inPortSlot(b, 1, 0)).toBe(0);
-    expect(inPortSlot(b, 1, 2)).toBe(0);
-    expect(inPortSlot(b, 0, 0)).toBe(-1);
+    expect(targetInPortSlot(b, 0, 1)).toBe(0);
+    expect(targetInPortSlot(b, 2, 1)).toBe(0);
+    expect(targetInPortSlot(b, 1, 0)).toBe(0);
+    expect(targetInPortSlot(b, 1, 2)).toBe(0);
+    expect(targetInPortSlot(b, 0, 0)).toBe(-1);
   });
   it('portsOf: miner 4 out; operator 2 tips in + 2 edges out; target 4 in', () => {
     expect(portsOf(miner(0, 0, 'right')).filter((p) => p.role === 'out').length).toBe(4);
@@ -152,6 +147,27 @@ describe('building geometry', () => {
     expect(ins.map((p) => p.label).sort()).toEqual(['A', 'B']); // labeled input tips
     expect(ports.filter((p) => p.role === 'out').length).toBe(2); // both middle edges
     expect(portsOf(target(0, 0, 'right')).filter((p) => p.role === 'in').length).toBe(4);
+  });
+});
+
+describe('feedsCell (structural: does a neighbor EMIT INTO this cell?)', () => {
+  it('a belt pointing into the cell feeds it; one pointing away does not', () => {
+    const s = emptyState(1);
+    setBelt(s, 10, 10, { type: 'belt', dir: 'right' }); // emits toward (11,10)
+    expect(feedsCell(s, 11, 10)).toBe(true);
+    expect(feedsCell(s, 9, 10)).toBe(false);  // belt points the other way
+    expect(feedsCell(s, 10, 11)).toBe(false); // not in the belt's travel line
+  });
+  it('a miner feeds ONLY its actual output cells, not every adjacent cell', () => {
+    const s = emptyState(1);
+    addBuilding(s, miner(0, 0, 'right')); // 3x3 footprint (0,0)..(2,2)
+    // A real output cell (right edge) IS fed.
+    const out = minerOutputs(miner(0, 0, 'right'))[0];
+    expect(feedsCell(s, out.x, out.y)).toBe(true);
+    // (3,3) only touches the miner at its diagonal corner (2,2) — NOT an output cell.
+    // The old tipHasFeeder short-circuited on ANY adjacent miner; the corrected rule returns false.
+    expect(minerOutputs(miner(0, 0, 'right')).some((o) => o.x === 3 && o.y === 3)).toBe(false);
+    expect(feedsCell(s, 3, 3)).toBe(false);
   });
 });
 
