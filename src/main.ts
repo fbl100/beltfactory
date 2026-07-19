@@ -161,10 +161,14 @@ async function boot() {
   });
 
   const canvas = renderer['app'].canvas as HTMLCanvasElement;
-  const cellOf = (e: MouseEvent) => {
+  // Own all touch gestures ourselves (one-finger build, two-finger pan/zoom); otherwise the browser
+  // hijacks them as page scroll/zoom and stops synthesizing the mouse events the desktop path needs.
+  canvas.style.touchAction = 'none';
+  const cellOfXY = (clientX: number, clientY: number) => {
     const r = canvas.getBoundingClientRect();
-    return renderer.screenToWorld(e.clientX - r.left, e.clientY - r.top);
+    return renderer.screenToWorld(clientX - r.left, clientY - r.top);
   };
+  const cellOf = (e: MouseEvent) => cellOfXY(e.clientX, e.clientY);
 
   // Pan-by-drag: middle-button drag, or space-held left drag. Records the grab origin (screen px)
   // and the camera at grab time; mousemove then drags the world under the cursor.
@@ -220,15 +224,11 @@ async function boot() {
     return at !== undefined && performance.now() - at < GRACE_MS;
   });
 
-  canvas.addEventListener('mousedown', (e) => {
-    if (isPaused()) return; // frozen during the level-up celebration (F6)
-    sfx.unlock(); // first gesture unlocks Web Audio
-    if (e.button === 1 || (e.button === 0 && spaceDown)) {
-      panning = { sx: e.clientX, sy: e.clientY, camX: cam.x, camY: cam.y };
-      updateCursor(); e.preventDefault(); return;
-    }
-    const c = cellOf(e);
-    if (e.button === 2 || tool === 'eraser') { paintMode = 'erase'; beltAnchor = null; if (e.button === 2) { rightErasing = true; updateCursor(); } eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; sound.erased(); }
+  // Begin a build/erase at a cell — shared by mouse (left button) and touch (one finger). `forceErase`
+  // is the mouse right-button; the eraser tool always erases.
+  function beginPaintAt(c: { x: number; y: number }, forceErase: boolean) {
+    hover = c; // touch has no cursor to have moved here first — set it so the ghost/dead-end grace is right
+    if (forceErase || tool === 'eraser') { paintMode = 'erase'; beltAnchor = null; eraseLine(state, c.x, c.y, c.x, c.y); lastCell = c; sound.erased(); }
     else if (tool === 'belt') {
       paintMode = 'place'; downCell = c; anchorAtDown = beltAnchor; dragMoved = false; lastCell = c;
       stampPainted(paintBeltLine(state, c.x, c.y, c.x, c.y, placeDir)); // immediate single-belt feedback
@@ -238,7 +238,31 @@ async function boot() {
     else if (tool === 'square' && state.mode !== 'easy') { if (placeSquare(state, c.x, c.y, placeDir)) { sound.built(); stampPainted(squareFootprintCells(c.x, c.y, placeDir)); } paintMode = null; lastCell = null; } // x² is a multiply-family tool — never in easy mode
     else if (tool === 'splitter') { if (placeSplitter(state, c.x, c.y, placeDir)) sound.built(); paintMode = null; lastCell = null; }
     else { placeTunnelTool(c); paintMode = null; lastCell = null; } // tunnel
-    dirty = true; e.preventDefault();
+    dirty = true;
+  }
+  // Extend a drag-paint/erase to a new cell (mouse move / one-finger drag). Also updates hover.
+  function movePaintAt(c: { x: number; y: number }) {
+    hover = c;
+    if (!paintMode || !lastCell) return;
+    if (c.x === lastCell.x && c.y === lastCell.y) return;
+    dragMoved = true;
+    if (paintMode === 'erase') { eraseLine(state, lastCell.x, lastCell.y, c.x, c.y); sound.erased(); }
+    else { stampPainted(paintBeltLine(state, lastCell.x, lastCell.y, c.x, c.y, placeDir)); sound.belt(); }
+    lastCell = c; dirty = true;
+  }
+  // Drop an in-progress paint WITHOUT finalizing a belt anchor (e.g. a 2nd finger starts a pan).
+  function cancelPaint() { paintMode = null; lastCell = null; downCell = null; dragMoved = false; }
+
+  canvas.addEventListener('mousedown', (e) => {
+    if (isPaused()) return; // frozen during the level-up celebration (F6)
+    sfx.unlock(); // first gesture unlocks Web Audio
+    if (e.button === 1 || (e.button === 0 && spaceDown)) {
+      panning = { sx: e.clientX, sy: e.clientY, camX: cam.x, camY: cam.y };
+      updateCursor(); e.preventDefault(); return;
+    }
+    if (e.button === 2) { rightErasing = true; updateCursor(); }
+    beginPaintAt(cellOf(e), e.button === 2);
+    e.preventDefault();
   });
 
   // Tunnel tool: first click drops an entrance; a click ahead (same facing, in reach) drops the paired exit.
@@ -260,13 +284,7 @@ async function boot() {
       cam.y = panning.camY - (e.clientY - panning.sy) / cam.zoom;
       renderer.setCamera(cam); return;
     }
-    const c = cellOf(e); hover = c;
-    if (!paintMode || !lastCell) return;
-    if (c.x === lastCell.x && c.y === lastCell.y) return;
-    dragMoved = true;
-    if (paintMode === 'erase') { eraseLine(state, lastCell.x, lastCell.y, c.x, c.y); sound.erased(); }
-    else { stampPainted(paintBeltLine(state, lastCell.x, lastCell.y, c.x, c.y, placeDir)); sound.belt(); }
-    lastCell = c; dirty = true;
+    movePaintAt(cellOf(e));
   });
   const endPaint = () => {
     if (panning) { panning = null; updateCursor(); return; }
@@ -288,6 +306,47 @@ async function boot() {
   window.addEventListener('mouseup', endPaint);
   canvas.addEventListener('mouseleave', () => { endPaint(); hover = null; });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  // ---- touch: ONE finger builds (paint/place/erase), TWO fingers pan + pinch-zoom ----
+  // (touch-action:none above stops the browser from turning these into page scroll/zoom.)
+  let touchGesture: { midX: number; midY: number; dist: number } | null = null;
+  const twoFingerMetrics = (t: TouchList) => {
+    const [a, b] = [t[0], t[1]];
+    const dx = a.clientX - b.clientX, dy = a.clientY - b.clientY;
+    return { midX: (a.clientX + b.clientX) / 2, midY: (a.clientY + b.clientY) / 2, dist: Math.hypot(dx, dy) };
+  };
+  canvas.addEventListener('touchstart', (e) => {
+    if (isPaused()) return;
+    sfx.unlock();
+    if (e.touches.length >= 2) { cancelPaint(); touchGesture = twoFingerMetrics(e.touches); } // pan/pinch
+    else if (!touchGesture && e.touches.length === 1) {
+      const t = e.touches[0];
+      beginPaintAt(cellOfXY(t.clientX, t.clientY), false); // one finger = build (eraser tool still erases)
+    }
+    e.preventDefault();
+  }, { passive: false });
+  canvas.addEventListener('touchmove', (e) => {
+    if (isPaused()) return;
+    if (touchGesture && e.touches.length >= 2) {
+      const g = twoFingerMetrics(e.touches);
+      cam.x += (touchGesture.midX - g.midX) / cam.zoom;           // pan: world follows the fingers
+      cam.y += (touchGesture.midY - g.midY) / cam.zoom;
+      if (g.dist > 0 && touchGesture.dist > 0) cam.zoom = Math.max(12, Math.min(96, cam.zoom * (g.dist / touchGesture.dist))); // pinch zoom
+      touchGesture = g;
+      renderer.setCamera(cam);
+    } else if (!touchGesture && e.touches.length === 1) {
+      const t = e.touches[0];
+      movePaintAt(cellOfXY(t.clientX, t.clientY)); // one-finger drag paints
+    }
+    e.preventDefault();
+  }, { passive: false });
+  const endTouch = (e: TouchEvent) => {
+    if (e.touches.length === 0) { touchGesture = null; endPaint(); hover = null; } // all lifted
+    else if (e.touches.length === 1) { touchGesture = null; cancelPaint(); }        // 2→1: don't paint with the leftover finger
+    else if (touchGesture) touchGesture = twoFingerMetrics(e.touches);              // re-baseline remaining pair
+  };
+  canvas.addEventListener('touchend', endTouch);
+  canvas.addEventListener('touchcancel', endTouch);
   canvas.addEventListener('wheel', (e) => {
     if (isPaused()) { e.preventDefault(); return; } // frozen during the level-up celebration (F6)
     // Trackpad pinch (and ctrl+wheel) zoom; plain two-finger scroll pans (Mac-native canvas feel).
