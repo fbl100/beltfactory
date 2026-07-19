@@ -39,7 +39,13 @@ export class PixiRenderer implements Renderer {
   // without allocating a Set of live ids every frame.
   private itemBirth = new Map<number, { first: number; frame: number }>();
   private drawFrame = 0;
-  private cellG = new Graphics(); // grid + nodes + belts + building bodies + arrows + ghost
+  // Static geometry (grid + node bodies + belt bodies) — direction-agnostic, unanimated. Rebuilt only
+  // when the layout/camera/theme change (tracked by a cheap hash), NOT every frame, so watching a
+  // mostly-idle factory run stops churning Graphics geometry (that per-frame rebuild was driving the
+  // GC pauses that made item motion visibly stutter). Sits BELOW cellG so animated treads draw on top.
+  private staticG = new Graphics();
+  private lastStaticHash = -1;
+  private cellG = new Graphics(); // per-frame: treads, dead-end dim/throb, splitters, tunnels, buildings, ghost, labels
   private itemG = new Graphics(); // item circles
   private texts: Text[] = [];
 
@@ -50,6 +56,7 @@ export class PixiRenderer implements Renderer {
     await this.app.init({ background: theme.background, resizeTo: this.parent, antialias: true });
     this.parent.appendChild(this.app.canvas);
     this.app.stage.addChild(this.layer);
+    this.layer.addChild(this.staticG); // bottom: cached grid + belt/node bodies
     this.layer.addChild(this.cellG);
     this.layer.addChild(this.itemG);
   }
@@ -123,6 +130,33 @@ export class PixiRenderer implements Renderer {
     }
   }
 
+  // Rebuild the cached static layer: grid lines + resource-node bodies + belt bodies — all
+  // direction-agnostic and unanimated. Called from draw() ONLY when the static hash changes, so the
+  // ~belt-count roundRects + grid rects stop being re-emitted every frame.
+  private drawStatic(state: GameState, r: { minX: number; maxX: number; minY: number; maxY: number }): void {
+    const t = this.theme, cs = this.cam.zoom, sg = this.staticG;
+    sg.clear();
+    const inRange = (x: number, y: number) => x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
+    // grid lines
+    for (let x = r.minX; x <= r.maxX; x++) sg.rect(this.sx(x), this.sy(r.minY), 1, (r.maxY - r.minY) * cs);
+    for (let y = r.minY; y <= r.maxY; y++) sg.rect(this.sx(r.minX), this.sy(y), (r.maxX - r.minX) * cs, 1);
+    sg.fill(t.grid);
+    // resource node bodies (labels are drawn per-frame in draw()) — hidden where a building covers them
+    for (const node of state.nodes.values()) {
+      if (!inRange(node.x, node.y) || buildingAt(state, node.x, node.y)) continue;
+      const px = this.sx(node.x) + 3, py = this.sy(node.y) + 3, sz = cs - 6;
+      sg.roundRect(px, py, sz, sz, t.cornerRadius).fill({ color: t.node, alpha: 0.9 });
+    }
+    // belt bodies (full alpha; dead-end dim + treads are animated per-frame in draw())
+    for (const key of state.belts.keys()) {
+      const { x, y } = parseKey(key);
+      if (!inRange(x, y)) continue;
+      const px = this.sx(x) + 2, py = this.sy(y) + 2, sz = cs - 4;
+      sg.roundRect(px, py, sz, sz, t.cornerRadius).fill(t.belt);
+      sg.roundRect(px, py, sz, sz, t.cornerRadius).stroke({ width: 2, color: t.beltEdge });
+    }
+  }
+
   draw(state: GameState, alpha: number): void {
     const t = this.theme, cs = this.cam.zoom;
     const r = this.visibleCellRange();
@@ -137,10 +171,13 @@ export class PixiRenderer implements Renderer {
     const nowMs = performance.now();
     const inRange = (x: number, y: number) => x >= r.minX && x <= r.maxX && y >= r.minY && y <= r.maxY;
 
-    // grid lines
-    for (let x = r.minX; x <= r.maxX; x++) g.rect(this.sx(x), this.sy(r.minY), 1, (r.maxY - r.minY) * cs);
-    for (let y = r.minY; y <= r.maxY; y++) g.rect(this.sx(r.minX), this.sy(y), (r.maxX - r.minX) * cs, 1);
-    g.fill(t.grid);
+    // Cached static layer (grid + node/belt bodies): rebuild only when the view or layout changes.
+    // The hash is cheap (map sizes + camera + theme) and allocates nothing, so idle frames skip the
+    // rebuild entirely — that per-frame geometry churn was the GC source behind the motion stutter.
+    const staticHash = ((Math.round(this.cam.x * 64) * 0x9e3779b1) ^ (Math.round(this.cam.y * 64) * 0x85ebca77)
+      ^ (Math.round(cs * 16) * 0xc2b2ae3d) ^ (Math.round(this.vw) * 0x27d4eb2f) ^ (Math.round(this.vh) * 0x165667b1)
+      ^ (state.belts.size * 0x9e3779b1) ^ (state.nodes.size * 0x85ebca77) ^ (state.buildings.size * 0xc2b2ae3d) ^ t.background) >>> 0;
+    if (staticHash !== this.lastStaticHash) { this.drawStatic(state, r); this.lastStaticHash = staticHash; }
 
     // pooled label helper (numbers/symbols on top of everything)
     let ti = 0;
@@ -155,31 +192,30 @@ export class PixiRenderer implements Renderer {
       txt.style = { fill, fontSize: size, fontFamily: 'system-ui', fontWeight: 'bold' } as any;
     };
 
-    // resource nodes (ground) — hidden where a building covers them
+    // resource node labels (bodies live in the cached static layer) — hidden where a building covers them
     for (const node of state.nodes.values()) {
       if (!inRange(node.x, node.y) || buildingAt(state, node.x, node.y)) continue;
-      const px = this.sx(node.x) + 3, py = this.sy(node.y) + 3, sz = cs - 6;
-      g.roundRect(px, py, sz, sz, t.cornerRadius).fill({ color: t.node, alpha: 0.9 });
       label(formatValue(node.value), this.sx(node.x) + cs / 2, this.sy(node.y) + cs / 2, t.nodeText, fitSize(formatValue(node.value), cs, Math.round(cs * 0.42)));
     }
 
-    // belts (1x1): body + marching conveyor treads. A belt whose downstream cell can't accept an item
-    // is a DEAD END: dim it, freeze its treads, and cap the leading edge in throbbing red with a "!".
-    // this.graced suppresses the warning on cells the player is actively working on, so painting a
-    // normal line never flashes red at every head.
+    // belts (1x1): bodies are in the cached static layer; here we draw only the ANIMATED parts —
+    // marching conveyor treads, and for a DEAD END (downstream can't accept) a dim overlay + frozen
+    // treads + a throbbing red cap with "!". this.graced suppresses the warning on cells the player is
+    // actively working on, so painting a normal line never flashes red at every head.
     for (const [key, belt] of state.belts) {
       const { x, y } = parseKey(key);
       if (!inRange(x, y)) continue;
       const d = DELTA[belt.dir];
       const deadEnd = !acceptsItemAt(state, x + d.dx, y + d.dy) && !this.graced(x, y);
-      const bodyAlpha = deadEnd ? 0.45 : 1;
-      const px = this.sx(x) + 2, py = this.sy(y) + 2, sz = cs - 4;
-      g.roundRect(px, py, sz, sz, t.cornerRadius).fill({ color: t.belt, alpha: bodyAlpha });
-      g.roundRect(px, py, sz, sz, t.cornerRadius).stroke({ width: 2, color: t.beltEdge, alpha: bodyAlpha });
-      // frozen treads (fixed centered phase) read as "stopped"; live tick-synced phase otherwise
-      this.beltTreads(g, this.sx(x) + cs / 2, this.sy(y) + cs / 2, cs, belt.dir, deadEnd ? 0.5 : beltPhase, t.beltEdge);
+      const ccx = this.sx(x) + cs / 2, ccy = this.sy(y) + cs / 2;
+      // dead-end dim: background @0.55 over the full-alpha static body == the old bodyAlpha=0.45 look
       if (deadEnd) {
-        const ccx = this.sx(x) + cs / 2, ccy = this.sy(y) + cs / 2;
+        const px = this.sx(x) + 2, py = this.sy(y) + 2, sz = cs - 4;
+        g.roundRect(px, py, sz, sz, t.cornerRadius).fill({ color: t.background, alpha: 0.55 });
+      }
+      // frozen treads (fixed centered phase) read as "stopped"; live tick-synced phase otherwise
+      this.beltTreads(g, ccx, ccy, cs, belt.dir, deadEnd ? 0.5 : beltPhase, t.beltEdge);
+      if (deadEnd) {
         const ex = ccx + d.dx * cs * 0.42, ey = ccy + d.dy * cs * 0.42; // leading-edge midpoint
         const perpx = -d.dy, perpy = d.dx, half = cs * 0.34;
         const throb = 0.5 + 0.4 * (0.5 + 0.5 * Math.sin(nowMs / 220)); // ~0.5..0.9 pulse

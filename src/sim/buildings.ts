@@ -177,11 +177,30 @@ export function buildingAt(s: GameState, x: number, y: number): Building | undef
   return anchor ? s.buildings.get(anchor) : undefined;
 }
 
+// (x,y) is one of a miner's 12 output cells iff it sits one step beyond a footprint edge — exactly
+// the ring where one axis offset from the 3x3 center is ±2 and the other is within ±1. Kept in sync
+// with minerOutputs() by construction; expressed as a membership test so it allocates nothing.
+function isMinerOutputCell(b: MinerBuilding, x: number, y: number): boolean {
+  const adx = Math.abs(x - (b.ax + 1)), ady = Math.abs(y - (b.ay + 1));
+  return (adx === 2 && ady <= 1) || (ady === 2 && adx <= 1);
+}
+
+// (x,y) is one of an operator's two output cells (center ± the facing axis) — matches operatorOutCells.
+// Allocation-free. The 1x3 bar is horizontal (center at ax+1,ay) when dir is up/down (= !isHorizontal).
+function operatorEmitsToCell(b: OperatorBuilding, x: number, y: number): boolean {
+  const barHoriz = !isHorizontal(b.dir);
+  const cx = b.ax + (barHoriz ? 1 : 0), cy = b.ay + (barHoriz ? 0 : 1);
+  const f = DELTA[b.dir];
+  return (x === cx + f.dx && y === cy + f.dy) || (x === cx - f.dx && y === cy - f.dy);
+}
+
 // Structural: does any neighbor actually EMIT INTO (x,y)? A belt or tunnel-'out' pointing in, an
 // adjacent splitter, a MINER whose output cells include (x,y), or an operator whose output cells
 // include (x,y). Does NOT check emptiness/occupancy — only whether something feeds this cell.
 // CORRECTED from the old tipHasFeeder, which returned true for ANY adjacent miner; a miner only
 // feeds its actual OUTPUT cells (a cell touching a miner corner/side that isn't an output is NOT fed).
+// Called every frame per operator tip by the renderer's dead-end warning, so it does membership
+// tests instead of building minerOutputs()/operatorOutCells() arrays (keeps the hot path garbage-free).
 export function feedsCell(state: GameState, x: number, y: number): boolean {
   for (const s of DIRECTIONS) {
     const nx = x + DELTA[s].dx, ny = y + DELTA[s].dy, into = OPPOSITE[s]; // dir from neighbor back to (x,y)
@@ -191,8 +210,9 @@ export function feedsCell(state: GameState, x: number, y: number): boolean {
     const tun = tunnelAt(state, nx, ny);
     if (tun && tun.role === 'out' && tun.dir === into) return true;
     const nb = buildingAt(state, nx, ny);
-    if (nb && nb.type === 'miner' && minerOutputs(nb).some((o) => o.x === x && o.y === y)) return true;
-    if (nb && nb.type === 'operator' && operatorOutCells(nb).some((o) => o.x === x && o.y === y)) return true;
+    if (!nb) continue;
+    if (nb.type === 'miner' && isMinerOutputCell(nb, x, y)) return true;
+    if (nb.type === 'operator' && operatorEmitsToCell(nb, x, y)) return true;
   }
   return false;
 }
