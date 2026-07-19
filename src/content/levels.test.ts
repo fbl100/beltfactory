@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LEVELS, ENDLESS_START, levelAt, clampLevelIndex, opsForLevel, parFor, startIndexForMode, EASY_SUB_UNLOCK } from './levels';
+import { LEVELS, ENDLESS_START, levelAt, clampLevelIndex, opsForLevel, parFor, startIndexForMode, EASY_SUB_UNLOCK, EASY_TAKEAWAY_INTRO, minOpsToBuild } from './levels';
 import { ALL_OPS } from './operations';
 import type { OpId } from './operations';
 
@@ -298,11 +298,24 @@ describe('content/levels: easy mode (addition & subtraction, for a 6-year-old)',
         const lvl = levelAt(ENDLESS_START + k, seed, 'easy');
         const hand = lvl.grantNodes.map((n) => n.value);
         expect(lvl.target).toBeGreaterThanOrEqual(4n);
-        expect(lvl.target).toBeLessThanOrEqual(20n);
+        expect(lvl.target).toBeLessThanOrEqual(15n); // small numbers for a 6-year-old
         expect(lvl.par).toBeGreaterThanOrEqual(1);
         expect(lvl.required).toBe(5);
         // The crucial guarantee: an addition-only route always exists, so she can never be blocked.
         expect(reachableWithOps(lvl.target, hand, ['add'])).toBe(true);
+      }
+  });
+
+  it('the first puzzles after the − unlock are guaranteed take-away boards (subtraction strictly wins)', () => {
+    for (const seed of [1, 42, 7, 999, 12345])
+      for (let k = 0; k < EASY_TAKEAWAY_INTRO; k++) {
+        const lvl = levelAt(ENDLESS_START + EASY_SUB_UNLOCK + k, seed, 'easy');
+        const hand = lvl.grantNodes.map((n) => Number(n.value));
+        const t = Number(lvl.target);
+        const withSub = minOpsToBuild(hand, ['add', 'subtract'], t);
+        const addOnly = minOpsToBuild(hand, ['add'], t);
+        expect(addOnly).toBeDefined();               // addition fallback always exists (never stuck)
+        expect(withSub!).toBeLessThan(addOnly!);      // but − is the cheaper hero → she'll actually use it
       }
   });
 

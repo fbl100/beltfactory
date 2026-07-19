@@ -75,12 +75,14 @@ const MAX_DRIPS = 6;                 // ...capped, so the map never re-clutters
 const EASY_HAND_SLOTS = [                 // where a hand's sources sit, spread around the hub (13,5)
   { x: 2, y: 2 }, { x: 22, y: 2 }, { x: 2, y: 12 }, { x: 22, y: 12 },
 ];
-const EASY_CAP = 20;                      // targets stay small and readable
+const EASY_CAP = 15;                      // targets stay small and readable for a 6-year-old
 const EASY_MIN_TARGET = 4;                // smallest goal worth building
 const EASY_REQUIRED = 5;                  // deliveries per puzzle (unchanged — variety, not fewer deliveries, is the fix)
 const EASY_STAGE = 10;                    // difficulty + source pool step up every N puzzles
 export const EASY_SUB_UNLOCK = 15;        // puzzle (0-based) at which the Take-Away (−) machine unlocks
-const EASY_TAKEAWAY_CHANCE = 0.28;        // after the unlock, roughly this share of boards are take-away shapes
+export const EASY_TAKEAWAY_INTRO = 3;     // the first N puzzles AFTER the unlock are guaranteed take-away boards
+const EASY_TAKEAWAY_CHANCE = 0.33;        // afterward, roughly this share of boards are take-away shapes
+const EASY_FULL_POOL = [1, 2, 3, 4, 5, 6, 7, 8, 9]; // intro take-away puzzles deal from the full pool so − can strictly beat +
 
 // Which level index a fresh game of this mode begins at. Easy skips the (×-based) campaign entirely
 // and starts straight in the endless range, so it inherits all the golf/stars/fresh-board plumbing.
@@ -97,7 +99,9 @@ export function easyOpsAt(index: number): OpId[] {
 // target size barely moves. `handSize` grows from 3 to 4 late so there are always a few ways in.
 function easyStage(index: number): { pool: number[]; handSize: number; minPar: number; maxPar: number; magCap: number } {
   const stage = Math.floor(Math.max(0, index - ENDLESS_START) / EASY_STAGE);
-  const poolMax = Math.min(4 + stage, 9);
+  // Once subtraction is in play, the pool jumps to bigger numbers so − (big minus small) is genuinely
+  // useful — small numbers alone make subtraction no cheaper than addition, so take-away boards vanish.
+  const poolMax = Math.min((index - ENDLESS_START >= EASY_SUB_UNLOCK ? 6 : 4) + stage, 9);
   const pool: number[] = [];
   for (let v = 1; v <= poolMax; v++) pool.push(v);
   return {
@@ -105,11 +109,13 @@ function easyStage(index: number): { pool: number[]; handSize: number; minPar: n
     handSize: Math.min(stage >= 4 ? 4 : 3, EASY_HAND_SLOTS.length),
     minPar: Math.min(1 + Math.floor(stage / 3), 2),
     maxPar: Math.min(2 + Math.floor(stage / 2), 4),
-    magCap: Math.min(10 + stage * 3, EASY_CAP), // a slightly wider target range spreads the goals out
+    magCap: Math.min(9 + stage * 2, EASY_CAP), // targets creep up gently, topping out at EASY_CAP
   };
 }
 
-// Deal `size` distinct values from `pool` with the seeded rng (partial Fisher–Yates), sorted small→big.
+// Deal `size` distinct values from `pool` with the seeded rng (partial Fisher–Yates). ALWAYS keeps a
+// small "anchor" (≤3) in the hand: without one, an all-big hand can't ADD up to a small target, which
+// would strand her (violating never-stuck) — the anchor guarantees an addition route always exists.
 function dealHand(pool: number[], size: number, rng: () => number): number[] {
   const a = [...pool];
   const n = Math.min(size, a.length);
@@ -117,7 +123,15 @@ function dealHand(pool: number[], size: number, rng: () => number): number[] {
     const j = i + Math.floor(rng() * (a.length - i));
     [a[i], a[j]] = [a[j], a[i]];
   }
-  return a.slice(0, n).sort((x, y) => x - y);
+  const hand = a.slice(0, n);
+  const smalls = pool.filter((v) => v <= 3);
+  if (smalls.length && !hand.some((v) => v <= 3)) {
+    const s = smalls[Math.floor(rng() * smalls.length)]; // s ∉ hand (hand had no ≤3), so still distinct
+    let maxAt = 0;
+    for (let i = 1; i < hand.length; i++) if (hand[i] > hand[maxAt]) maxAt = i;
+    hand[maxAt] = s; // swap the biggest value out for a small anchor
+  }
+  return hand.sort((x, y) => x - y);
 }
 
 // How many ways `target` is an unordered sum of `hand` values (unlimited reuse) — coin-change count.
@@ -128,21 +142,17 @@ function additiveWays(hand: number[], target: number): number {
   return ways[target];
 }
 
-// An easy puzzle: a fresh hand, a target buildable a few ways (and, on take-away boards, cheapest via −).
-// An easy puzzle: a fresh hand of sources and a target buildable a few ways (and, on take-away boards,
-// cheapest via −). PURE in (index, seed) — no cross-index look-back — so reconcile/display always
-// reproduce the same puzzle. Repetition is killed by the fresh HAND: "make 8" from {2,3,4} plays
-// nothing like "make 8" from {1,3,4}, so the same goal number never means the same puzzle.
-function easyLevel(index: number, seed: number): Level {
-  const rng = mulberry32(hash2((seed >>> 0) ^ 0x0ea51357, index)); // distinct stream from normal mode
-  const st = easyStage(index);
-  const ops = easyOpsAt(index);
-  const hand = dealHand(st.pool, st.handSize, rng);
+// Fewest machines to build `target` from `values` with `ops` (undefined if unreachable ≤ EASY_CAP).
+// Exported for tests to check the "take-away is strictly cheaper" property.
+export function minOpsToBuild(values: number[], ops: OpId[], target: number): number | undefined {
+  return minOpsTable(values, ops, EASY_CAP).get(target);
+}
 
+// Build the sorted candidate-target pool for a hand + take-away preference, with graceful relaxation.
+// Returns the pool plus whether a genuine take-away target (− strictly cheaper than +) was available.
+function easyTargetPool(hand: number[], ops: OpId[], st: ReturnType<typeof easyStage>, wantTakeAway: boolean): { pool: number[]; isTakeAway: boolean } {
   const fullCost = minOpsTable(hand, ops, EASY_CAP);      // par with the ops she has
   const addCost = minOpsTable(hand, ['add'], EASY_CAP);   // par using addition alone (the fallback route)
-  const wantTakeAway = ops.includes('subtract') && rng() < EASY_TAKEAWAY_CHANCE;
-
   const inBand = (v: number, cap: number): boolean => {
     const p = fullCost.get(v);
     return p !== undefined && v >= EASY_MIN_TARGET && v <= cap && p >= st.minPar && p <= st.maxPar;
@@ -156,15 +166,48 @@ function easyLevel(index: number, seed: number): Level {
     if (add === undefined) return false; // must be buildable by addition too
     return wantTakeAway ? fullCost.get(v)! < add : additiveWays(hand, v) >= 2;
   };
-
-  let pool = valuesWhere(fullCost, (v) => ok(v, st.magCap));
-  if (pool.length === 0) pool = valuesWhere(fullCost, (v) => ok(v, EASY_CAP));
-  // Relax the "few ways / take-away" rule but KEEP the addition fallback (so she's never stuck)...
-  if (pool.length === 0) pool = valuesWhere(fullCost, (v) => inBand(v, EASY_CAP) && addCost.get(v) !== undefined);
-  if (pool.length === 0) pool = valuesWhere(fullCost, (v) => v >= EASY_MIN_TARGET && v <= EASY_CAP); // ...only then, anything reachable
+  const addReachable = (v: number) => addCost.get(v) !== undefined; // the never-stuck fallback
+  const primary = valuesWhere(fullCost, (v) => ok(v, st.magCap));
+  let pool = primary;
+  // Relax the "few ways / take-away" rule BEFORE widening the numbers, so a thin band never leaks a
+  // too-big target — small-and-solvable beats big-and-clever for a 6-year-old.
+  if (pool.length === 0) pool = valuesWhere(fullCost, (v) => inBand(v, st.magCap) && addReachable(v)); // drop few-ways, keep it small
+  if (pool.length === 0) pool = valuesWhere(fullCost, (v) => ok(v, EASY_CAP));                          // then allow bigger, few-ways
+  if (pool.length === 0) pool = valuesWhere(fullCost, (v) => inBand(v, EASY_CAP) && addReachable(v));
+  // Last resort: drop the par band too, but NEVER the addition route (she must be able to add her way
+  // there) and never a trivial 0-machine source target. The anchor in dealHand guarantees one exists.
+  if (pool.length === 0) pool = valuesWhere(fullCost, (v) => v >= EASY_MIN_TARGET && v <= EASY_CAP && addReachable(v) && (fullCost.get(v) ?? 0) >= 1);
   pool.sort((a, b) => a - b);
+  return { pool, isTakeAway: wantTakeAway && primary.length > 0 };
+}
 
-  const target = pool[Math.floor(rng() * pool.length)];
+// An easy puzzle: a fresh hand of sources and a target buildable a few ways (and, on take-away boards,
+// cheapest via −). PURE in (index, seed) — no cross-index look-back — so reconcile/display always
+// reproduce the same puzzle. Repetition is killed by the fresh HAND: "make 8" from {2,3,4} plays
+// nothing like "make 8" from {1,3,4}, so the same goal number never means the same puzzle.
+function easyLevel(index: number, seed: number): Level {
+  const rng = mulberry32(hash2((seed >>> 0) ^ 0x0ea51357, index)); // distinct stream from normal mode
+  const st = easyStage(index);
+  const ops = easyOpsAt(index);
+  const easyN = index - ENDLESS_START;
+  // The first few puzzles AFTER the − unlock are guaranteed take-away boards — a tutorial for the new
+  // machine — dealt from the full {1..9} pool so − can strictly beat +. Bounded re-deal finds a hand
+  // that actually supports one; determinism holds (rng is consumed in a fixed order).
+  const forceTakeAway = ops.includes('subtract') && easyN >= EASY_SUB_UNLOCK && easyN < EASY_SUB_UNLOCK + EASY_TAKEAWAY_INTRO;
+
+  let hand: number[] = [];
+  let res: { pool: number[]; isTakeAway: boolean } = { pool: [], isTakeAway: false };
+  const tries = forceTakeAway ? 24 : 1;
+  for (let t = 0; t < tries; t++) {
+    hand = dealHand(forceTakeAway ? EASY_FULL_POOL : st.pool, st.handSize, rng);
+    const roll = rng(); // consumed every try so rng flow is fixed whether or not we force take-away
+    const wantTakeAway = forceTakeAway || (ops.includes('subtract') && roll < EASY_TAKEAWAY_CHANCE);
+    res = easyTargetPool(hand, ops, st, wantTakeAway);
+    if (!forceTakeAway || res.isTakeAway) break; // random: first deal; forced: first deal that IS a take-away
+  }
+
+  const fullCost = minOpsTable(hand, ops, EASY_CAP);
+  const target = res.pool[Math.floor(rng() * res.pool.length)];
   return {
     target: BigInt(target), required: EASY_REQUIRED, ops,
     grantNodes: hand.map((value, i) => ({ x: EASY_HAND_SLOTS[i].x, y: EASY_HAND_SLOTS[i].y, value: BigInt(value) })),
