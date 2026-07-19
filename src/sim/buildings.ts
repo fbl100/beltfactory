@@ -162,14 +162,13 @@ export function portsOf(b: Building): Port[] {
 // Hot path: is (x,y) an IN-port EDGE cell of the target b (center + DELTA[side])? Returns the
 // slot, or -1. No allocation. Only the four edge-center cells accept; corners/center/body are -1.
 export function targetInPortSlot(b: TargetBuilding, x: number, y: number): number {
-  // Miners have no in-ports; operators use side-based delivery to their A/B ports (see tick.ts).
-  // target: any of the four edge-center cells
-  const cx = b.ax + 1, cy = b.ay + 1;
-  for (const s of DIRECTIONS) {
-    const d = DELTA[s];
-    if (x === cx + d.dx && y === cy + d.dy) return 0;
-  }
-  return -1;
+  // The hub accepts a delivery on ANY perimeter cell of its 3x3 — every edge AND corner — so a kid
+  // never has to line up on the exact edge center, and a belt that meets the hub off-center no longer
+  // reads as a dead end. Only the interior body center is a non-port (it's unreachable from outside).
+  const { w, h } = dimsOf(b);
+  if (x < b.ax || x >= b.ax + w || y < b.ay || y >= b.ay + h) return -1; // outside the footprint
+  const onEdge = x === b.ax || x === b.ax + w - 1 || y === b.ay || y === b.ay + h - 1;
+  return onEdge ? 0 : -1;
 }
 
 export function buildingAt(s: GameState, x: number, y: number): Building | undefined {

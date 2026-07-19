@@ -43,6 +43,9 @@ export interface Renderer {
   setTheme(theme: Theme): void;
   setCamera(cam: Camera): void;
   setPreview(p: Preview | null): void;
+  // A translucent belt-route ghost shown between the two clicks of a click-start/click-end belt run.
+  // Each entry is a belt cell + the direction it will flow; null clears it.
+  setPathPreview(cells: { x: number; y: number; dir: Direction }[] | null): void;
   // Render-only hint for the dead-end warning: return true for cells the warning must NOT flag
   // (recently painted/placed, or under the cursor). Set from main; the sim never sees it.
   setDeadEndGrace(isGraced: (x: number, y: number) => boolean): void;

@@ -44,14 +44,15 @@ describe('acceptKindAt / acceptsItemAt (shared with tick.advanceBeltItem)', () =
     b.inputs.push({ tip: 'A', value: 3n }); // transient back-pressure, not a dead end
     expect(acceptsItemAt(s, tips.A.x, tips.A.y)).toBe(true);
   });
-  it('target in-ports accept; corner and body do not', () => {
+  it('target accepts on the whole perimeter (edges + corners); only the body center does not', () => {
     const s = emptyState(1);
     const b = target(0, 0, 'right'); // 3x3, center (1,1)
     addBuilding(s, b);
     expect(acceptKindAt(s, 1, 0)).toBe('target-port'); // top edge-center
     expect(acceptKindAt(s, 0, 1)).toBe('target-port'); // left edge-center
-    expect(acceptKindAt(s, 0, 0)).toBe('none');        // corner
-    expect(acceptKindAt(s, 1, 1)).toBe('none');        // body center
+    expect(acceptKindAt(s, 0, 0)).toBe('target-port'); // corner now accepts too
+    expect(acceptKindAt(s, 2, 2)).toBe('target-port'); // opposite corner
+    expect(acceptKindAt(s, 1, 1)).toBe('none');        // body center (unreachable, non-port)
   });
   it('a miner footprint face is a dead end (miners have no in-ports)', () => {
     const s = emptyState(1);
@@ -131,13 +132,15 @@ describe('building geometry', () => {
     expect(outCell(b)).toEqual({ x: 1, y: -1 }); // facing (up) side
     expect(operatorOutCells(b).map((o) => `${o.x},${o.y}`).sort()).toEqual(['1,-1', '1,1']);
   });
-  it('target accepts on all four edges but not corners', () => {
-    const b = target(0, 0, 'right'); // center (1,1)
-    expect(targetInPortSlot(b, 0, 1)).toBe(0);
+  it('target accepts on any footprint cell (all edges AND corners)', () => {
+    const b = target(0, 0, 'right'); // 3x3: cells (0..2, 0..2)
+    expect(targetInPortSlot(b, 0, 1)).toBe(0); // edge centers
     expect(targetInPortSlot(b, 2, 1)).toBe(0);
     expect(targetInPortSlot(b, 1, 0)).toBe(0);
     expect(targetInPortSlot(b, 1, 2)).toBe(0);
-    expect(targetInPortSlot(b, 0, 0)).toBe(-1);
+    expect(targetInPortSlot(b, 0, 0)).toBe(0); // corners now accept too
+    expect(targetInPortSlot(b, 2, 2)).toBe(0);
+    expect(targetInPortSlot(b, 3, 1)).toBe(-1); // outside the footprint
   });
   it('portsOf: miner 4 out; operator 2 tips in + 2 edges out; target 4 in', () => {
     expect(portsOf(miner(0, 0, 'right')).filter((p) => p.role === 'out').length).toBe(4);

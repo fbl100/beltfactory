@@ -31,6 +31,7 @@ export class PixiRenderer implements Renderer {
   private layer = new Container();
   private cam: Camera = { x: 8, y: 6, zoom: 44 };
   private preview: Preview | null = null;
+  private pathPreview: { x: number; y: number; dir: Direction }[] | null = null; // belt-route ghost between two clicks
   // Cells the dead-end warning must NOT flag (set by main each session; defaults to "flag nothing suppressed").
   private graced: (x: number, y: number) => boolean = () => false;
   private hover: { x: number; y: number } | null = null;
@@ -63,6 +64,7 @@ export class PixiRenderer implements Renderer {
   setTheme(theme: Theme): void { this.theme = theme; this.app.renderer.background.color = theme.background; }
   setCamera(cam: Camera): void { this.cam = cam; }
   setPreview(p: Preview | null): void { this.preview = p; }
+  setPathPreview(cells: { x: number; y: number; dir: Direction }[] | null): void { this.pathPreview = cells; }
   setDeadEndGrace(isGraced: (x: number, y: number) => boolean): void { this.graced = isGraced; }
   setHover(c: { x: number; y: number } | null): void { this.hover = c; }
   resize(): void { /* Application resizeTo handles the canvas; draw() recomputes from live size */ }
@@ -312,6 +314,18 @@ export class PixiRenderer implements Renderer {
       g.roundRect(px, py, p.w * cs - 4, p.h * cs - 4, t.cornerRadius).fill({ color: tint, alpha: 0.35 });
       const gcx = p.ox + (p.w - 1) / 2, gcy = p.oy + (p.h - 1) / 2; // bounding-box center
       this.arrow(g, this.sx(gcx + DELTA[p.dir].dx) + cs / 2, this.sy(gcy + DELTA[p.dir].dy) + cs / 2, cs * 0.28, p.dir, tint, 0.8);
+    }
+
+    // belt-route ghost (click-start -> hover): translucent bodies + flow arrows, exactly the run a
+    // second click will commit. Cells overlapping a building/splitter/tunnel are skipped by the router
+    // and simply aren't in this list, so the ghost shows real gaps rather than lying about coverage.
+    if (this.pathPreview) {
+      for (const c of this.pathPreview) {
+        if (!inRange(c.x, c.y)) continue;
+        const px = this.sx(c.x) + 2, py = this.sy(c.y) + 2, sz = cs - 4;
+        g.roundRect(px, py, sz, sz, t.cornerRadius).fill({ color: t.belt, alpha: 0.4 });
+        this.arrow(g, this.sx(c.x) + cs / 2, this.sy(c.y) + cs / 2, cs * 0.24, c.dir, t.item, 0.75);
+      }
     }
 
     // items (interpolated) under labels

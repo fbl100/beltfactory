@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  paintBeltLine, removeCell, eraseAt, eraseLine,
+  paintBeltLine, routeBeltCells, autoConnectBeltEnd, planBeltRun, placeBeltCells,
+  removeCell, eraseAt, eraseLine,
   canPlaceOperator, placeOperator, placeSplitter, placeTunnel, placeSquare,
 } from './place';
 import { emptyState, beltAt, splitterAt, tunnelAt, cellKey } from '../sim/grid';
@@ -139,5 +140,49 @@ describe('input.erase', () => {
     eraseLine(s, 0, 0, 3, 0);
     for (let x = 0; x <= 3; x++) expect(beltAt(s, x, 0)).toBeUndefined();
     expect(s.nodes.get(cellKey(2, 0))?.value).toBe(5n);
+  });
+});
+
+describe('input.belt click-route (ghost === commit)', () => {
+  it('routeBeltCells is a horizontal-first L, each belt aimed at the next cell', () => {
+    const cells = routeBeltCells(0, 0, 2, 3, 'right');
+    expect(cells).toEqual([
+      { x: 0, y: 0, dir: 'right' }, { x: 1, y: 0, dir: 'right' }, // across first
+      { x: 2, y: 0, dir: 'down' },  { x: 2, y: 1, dir: 'down' },  // then down
+      { x: 2, y: 2, dir: 'down' },  { x: 2, y: 3, dir: 'down' },
+    ]);
+  });
+
+  it('routeBeltCells verticalFirst flips the elbow (down first, then across)', () => {
+    const cells = routeBeltCells(0, 0, 2, 3, 'down', true);
+    expect(cells).toEqual([
+      { x: 0, y: 0, dir: 'down' },  { x: 0, y: 1, dir: 'down' },  // down first
+      { x: 0, y: 2, dir: 'down' },  { x: 0, y: 3, dir: 'right' }, // then across
+      { x: 1, y: 3, dir: 'right' }, { x: 2, y: 3, dir: 'right' },
+    ]);
+  });
+
+  it('autoConnectBeltEnd aims the last belt into an adjacent target port', () => {
+    const s = emptyState(1);
+    // target 3x3 at (5,5): center (6,6), so its LEFT input port is (5,6).
+    addBuilding(s, { type: 'target', ax: 5, ay: 5, dir: 'right', target: 6n, required: 8, par: 0 });
+    // approach the port cell's neighbor (4,6) from above, so the natural end dir is 'down'...
+    const cells = routeBeltCells(4, 0, 4, 6, 'down');
+    expect(cells[cells.length - 1].dir).toBe('down');
+    autoConnectBeltEnd(s, cells);
+    expect(cells[cells.length - 1].dir).toBe('right'); // ...auto-turned to deliver into the port at (5,6)
+  });
+
+  it('planBeltRun skips machine cells so the ghost shows the real gap', () => {
+    const s = emptyState(1);
+    // 1x3 vertical operator at (2,-1): occupies (2,-1),(2,0),(2,1)
+    addBuilding(s, { type: 'operator', ax: 2, ay: -1, dir: 'right', op: 'add', inputs: [], everyTicks: 20, sinceProduce: 0 });
+    const plan = planBeltRun(s, 0, 0, 5, 0, 'right');
+    expect(plan.some((c) => c.x === 2 && c.y === 0)).toBe(false); // the operator cell is dropped
+    // committing the plan places exactly the ghost cells — and nothing on the machine
+    placeBeltCells(s, plan);
+    expect(beltAt(s, 1, 0)?.dir).toBe('right');
+    expect(beltAt(s, 2, 0)).toBeUndefined();
+    expect(beltAt(s, 3, 0)?.dir).toBe('right');
   });
 });

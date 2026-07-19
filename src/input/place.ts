@@ -1,7 +1,7 @@
 import type { GameState, Direction } from '../sim/grid';
-import { beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, RIGHT_OF, DELTA } from '../sim/grid';
+import { beltAt, setBelt, splitterAt, setSplitter, tunnelAt, setTunnel, RIGHT_OF, DIRECTIONS, DELTA } from '../sim/grid';
 import type { Building, OperatorBuilding, SquareBuilding } from '../sim/buildings';
-import { isBlocked, buildingAt, addBuilding, removeBuildingAt, isHorizontal } from '../sim/buildings';
+import { isBlocked, buildingAt, addBuilding, removeBuildingAt, isHorizontal, acceptsItemAt } from '../sim/buildings';
 import type { OpId } from '../content/operations';
 import { OPERATOR_EVERY_TICKS } from '../content/config';
 
@@ -42,27 +42,77 @@ export function placeTunnel(state: GameState, x: number, y: number, dir: Directi
   return true;
 }
 
-// Paint a contiguous belt run from (ax,ay) to (bx,by) along a Manhattan path,
-// orienting each belt toward the next cell so corners flow the way you dragged.
-// `endDir` covers a single-cell stroke (a plain click), honoring the HUD facing.
-export function paintBeltLine(
-  state: GameState, ax: number, ay: number, bx: number, by: number, endDir: Direction,
-): { x: number; y: number }[] {
-  const painted: { x: number; y: number }[] = [];
+// Manhattan (L-shaped) route from (ax,ay) to (bx,by), orienting each belt toward the next cell so
+// corners flow the way you'd drag. `endDir` covers a single-cell route (anchor == cursor), honoring
+// the HUD facing. `verticalFirst` picks which leg of the L comes first — false = go across then down
+// (default, matches drag-paint); true = down then across (the other corner, toggled with R in the
+// live route). PURE (no state) — the ghost and the commit both build from this, so preview == result.
+export function routeBeltCells(
+  ax: number, ay: number, bx: number, by: number, endDir: Direction, verticalFirst = false,
+): { x: number; y: number; dir: Direction }[] {
+  const cells: { x: number; y: number; dir: Direction }[] = [];
   let cx = ax, cy = ay;
   let lastDir: Direction = endDir;
   while (cx !== bx || cy !== by) {
     let nx = cx, ny = cy;
-    if (cx !== bx) nx += Math.sign(bx - cx);
+    // horizontal-first exhausts X before Y; vertical-first exhausts Y before X.
+    const moveX = verticalFirst ? cy === by : cx !== bx;
+    if (moveX) nx += Math.sign(bx - cx);
     else ny += Math.sign(by - cy);
     lastDir = dirBetween(cx, cy, nx, ny);
-    placeOrOrientBelt(state, cx, cy, lastDir);
-    painted.push({ x: cx, y: cy });
+    cells.push({ x: cx, y: cy, dir: lastDir });
     cx = nx; cy = ny;
   }
-  placeOrOrientBelt(state, bx, by, lastDir);
-  painted.push({ x: bx, y: by });
+  cells.push({ x: bx, y: by, dir: lastDir });
+  return cells;
+}
+
+// Auto-connect the run's END: if a cell adjacent to the last belt accepts items (an operator tip,
+// target port, or squarer input), aim the last belt into it — so clicking next to a machine wires
+// straight in without hand-orienting. Skips the neighbor the route just came from. Mutates in place
+// so the ghost and the commit stay identical. (The START needs no fixup: a belt on a miner's output
+// cell already receives from it, whichever way it then flows.)
+export function autoConnectBeltEnd(state: GameState, cells: { x: number; y: number; dir: Direction }[]): void {
+  if (cells.length === 0) return;
+  const end = cells[cells.length - 1];
+  const prev = cells.length >= 2 ? cells[cells.length - 2] : null;
+  for (const d of DIRECTIONS) {
+    const nx = end.x + DELTA[d].dx, ny = end.y + DELTA[d].dy;
+    if (prev && nx === prev.x && ny === prev.y) continue; // don't point back up the route
+    if (acceptsItemAt(state, nx, ny)) { end.dir = d; return; }
+  }
+}
+
+// Place/re-orient every belt in a routed run (skips cells occupied by a building/splitter/tunnel, so
+// a route grazing a machine leaves a gap rather than clobbering it). Returns the cells actually
+// painted (for the dead-end-warning placement grace).
+export function placeBeltCells(state: GameState, cells: { x: number; y: number; dir: Direction }[]): { x: number; y: number }[] {
+  const painted: { x: number; y: number }[] = [];
+  for (const c of cells) {
+    if (buildingAt(state, c.x, c.y) || splitterAt(state, c.x, c.y) || tunnelAt(state, c.x, c.y)) continue;
+    placeOrOrientBelt(state, c.x, c.y, c.dir);
+    painted.push({ x: c.x, y: c.y });
+  }
   return painted;
+}
+
+// The full plan for a click-start/click-end belt run: Manhattan route -> auto-connect the end ->
+// drop cells that overlap a machine (they won't place). The SAME plan feeds the live ghost and the
+// commit, so what the ghost shows is exactly what a second click paints.
+export function planBeltRun(
+  state: GameState, ax: number, ay: number, bx: number, by: number, endDir: Direction, verticalFirst = false,
+): { x: number; y: number; dir: Direction }[] {
+  const cells = routeBeltCells(ax, ay, bx, by, endDir, verticalFirst);
+  autoConnectBeltEnd(state, cells);
+  return cells.filter((c) => !buildingAt(state, c.x, c.y) && !splitterAt(state, c.x, c.y) && !tunnelAt(state, c.x, c.y));
+}
+
+// Paint a contiguous belt run from (ax,ay) to (bx,by) along a Manhattan path (drag-paint path).
+// `endDir` covers a single-cell stroke (a plain click), honoring the HUD facing.
+export function paintBeltLine(
+  state: GameState, ax: number, ay: number, bx: number, by: number, endDir: Direction,
+): { x: number; y: number }[] {
+  return placeBeltCells(state, routeBeltCells(ax, ay, bx, by, endDir));
 }
 
 // Remove a belt (not buildings/nodes); drops any item sitting on it.

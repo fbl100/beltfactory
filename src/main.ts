@@ -13,7 +13,7 @@ import { reconcileLevel, startReplay, skipTutorial } from './sim/progression';
 import type { GameState, Direction } from './sim/grid';
 import { DELTA, parseKey } from './sim/grid';
 import {
-  paintBeltLine, eraseLine, placeOperator, placeSplitter, placeTunnel, placeSquare,
+  paintBeltLine, planBeltRun, placeBeltCells, eraseLine, placeOperator, placeSplitter, placeTunnel, placeSquare,
   canPlaceOperator, canPlaceSquare, operatorFootprintCells, squareFootprintCells, ROTATE_CW,
 } from './input/place';
 import { centerOf } from './sim/buildings';
@@ -82,6 +82,7 @@ async function boot() {
   let hover: { x: number; y: number } | null = null;
   let pendingTunnel: { x: number; y: number } | null = null; // entrance awaiting its exit
   let beltAnchor: { x: number; y: number } | null = null;    // first click of a belt segment
+  let routeElbow = false; // false = route across-then-down; true = down-then-across (toggle with R while routing)
   // Sound: a decoupled synth + a director that watches state deltas (deliveries, misses,
   // level-ups) and is told about place/erase actions. The sim never imports either. Created
   // BEFORE the HUD because the HUD's mute button drives it. The AudioContext must be created on
@@ -293,7 +294,7 @@ async function boot() {
       if (dragMoved) {
         beltAnchor = null; // a drag is a complete line
       } else if (anchorAtDown && (anchorAtDown.x !== downCell.x || anchorAtDown.y !== downCell.y)) {
-        stampPainted(paintBeltLine(state, anchorAtDown.x, anchorAtDown.y, downCell.x, downCell.y, placeDir)); // click1 -> click2
+        stampPainted(placeBeltCells(state, planBeltRun(state, anchorAtDown.x, anchorAtDown.y, downCell.x, downCell.y, placeDir, routeElbow))); // click1 -> click2 (same plan as the ghost)
         beltAnchor = null; // segment complete
         sound.belt();
         dirty = true;
@@ -362,11 +363,24 @@ async function boot() {
     if (isPaused()) return; // frozen during the level-up celebration (F6); celebrate.ts handles dismiss
     if (hud.isModalOpen()) return; // ⭐ My Stars overlay is modal — don't let build/pan hotkeys leak through
     sfx.unlock(); // first gesture unlocks Web Audio
+    if (e.key === 'Escape') {
+      // Cancel whatever build action is in progress: a pending belt route / tunnel entrance, and any
+      // non-default tool (operator, squarer, tunnel, eraser) drops back to Belt so its cursor-ghost
+      // clears. Pressing Escape in plain Belt mode just cancels the route. (Ghosts clear next frame.)
+      beltAnchor = null; pendingTunnel = null;
+      if (tool !== 'belt') { tool = 'belt'; hud.setTool('belt'); updateCursor(); }
+      return;
+    }
     if (e.key === 'm' || e.key === 'M') { sfx.toggleMuted(); hud.setMuted(sfx.isMuted()); return; }
     if (e.key === ' ') { spaceDown = true; updateCursor(); e.preventDefault(); return; } // hold space, drag to pan
     if (e.key === '+' || e.key === '=') { cam.zoom = Math.min(96, cam.zoom * 1.1); renderer.setCamera(cam); return; }
     if (e.key === '-' || e.key === '_') { cam.zoom = Math.max(12, cam.zoom * 0.9); renderer.setCamera(cam); return; }
-    if (e.key === 'r' || e.key === 'R') { placeDir = ROTATE_CW[placeDir]; pendingTunnel = null; beltAnchor = null; return; }
+    // While a belt route is pending, R flips the L-corner (across-then-down <-> down-then-across)
+    // instead of rotating the facing — so you can pick which way the bend goes before committing.
+    if (e.key === 'r' || e.key === 'R') {
+      if (tool === 'belt' && beltAnchor) { routeElbow = !routeElbow; return; }
+      placeDir = ROTATE_CW[placeDir]; pendingTunnel = null; beltAnchor = null; return;
+    }
     // Build hotkeys — the map lives in hud.ts (TOOL_HOTKEYS/OP_HOTKEYS, derived from the hotbar
     // slots) so a slot's key badge and the key we listen for can't drift:
     // 1 Belt · 2 Split · 3 Tunnel · 4–7 the ops · 0 Erase.
@@ -474,6 +488,13 @@ async function boot() {
       renderer.setPreview({ type: 'square', ox, oy, w: horiz ? 2 : 1, h: horiz ? 1 : 2, dir: placeDir, valid: ok });
     } else {
       renderer.setPreview(null); // 1x1 tools + eraser: no building ghost
+    }
+    // belt-route ghost: after the first click, preview the Manhattan run to the hovered cell
+    // (auto-connected + machine cells skipped) — exactly what a second click will commit.
+    if (tool === 'belt' && beltAnchor && hover) {
+      renderer.setPathPreview(planBeltRun(state, beltAnchor.x, beltAnchor.y, hover.x, hover.y, placeDir, routeElbow));
+    } else {
+      renderer.setPathPreview(null);
     }
     renderer.setHover(hover);
     renderer.draw(state, paused ? 1 : Math.min(acc / tickMs, 1));
