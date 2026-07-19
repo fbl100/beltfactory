@@ -1,6 +1,7 @@
 import type { BeltCell, SplitterCell, TunnelCell, ResourceNode } from './entities';
 import type { Building } from './buildings';
 import type { Item } from './items';
+import type { Mode } from '../content/levels';
 
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
@@ -21,6 +22,7 @@ export const LEFT_OF: Record<Direction, Direction> = { up: 'left', left: 'down',
 export interface GameState {
   version: number;
   seed: number;
+  mode: Mode;                            // 'normal' (× campaign + endless) or 'easy' (+/− only); PERSISTED
   tick: number;
   belts: Map<string, BeltCell>;          // 1x1
   splitters: Map<string, SplitterCell>;  // 1x1, round-robin a stream across outgoing belts
@@ -35,6 +37,14 @@ export interface GameState {
   delivered: number;                     // correct targets delivered toward the level's required count
   misses: number;                        // wrong-value-at-target count (feedback; not serialized)
   status: 'playing' | 'won';
+  bestStars: Map<number, number>;        // levelIndex -> best golf stars (1-3) ever earned; PERSISTED. Pruned to a recent window, so it feeds the puzzle LIST, not the lifetime totals below.
+  lastStars: number;                     // stars earned on the most recent completion, for the celebration (session)
+  replayReturn: number | null;           // while replaying a past puzzle, the levelIndex to return to on finish; else null. PERSISTED (so a reload cancels the replay cleanly)
+  // Lifetime golf tallies for the ⭐ screen — kept separately from bestStars so pruning that map never
+  // makes the totals understate. All PERSISTED. (starsTotal = sum of best stars; perfectCount = 3-star clears.)
+  solvedCount: number;                   // distinct endless puzzles ever solved
+  starsTotal: number;                    // lifetime sum of best stars
+  perfectCount: number;                  // lifetime count of 3-star (perfect) clears
 }
 
 export function cellKey(x: number, y: number): string {
@@ -86,9 +96,11 @@ export function itemAt(state: GameState, x: number, y: number): Item | undefined
 
 export function emptyState(seed: number): GameState {
   return {
-    version: 2, seed, tick: 0,
+    version: 2, seed, mode: 'normal', tick: 0,
     belts: new Map(), splitters: new Map(), tunnels: new Map(), buildings: new Map(), nodes: new Map(), occupancy: new Map(),
     loadedChunks: new Set(),
     items: [], nextItemId: 1, levelIndex: 0, delivered: 0, misses: 0, status: 'playing',
+    bestStars: new Map(), lastStars: 0, replayReturn: null,
+    solvedCount: 0, starsTotal: 0, perfectCount: 0,
   };
 }

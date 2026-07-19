@@ -1,3 +1,7 @@
+import type { Mode } from '../content/levels';
+
+export interface Me { username: string; mode: Mode }
+
 // All calls are resilient: a network failure resolves to a safe value instead of
 // throwing, so a flaky/offline server never crashes the game loop or the login form.
 export async function apiLogin(username: string, password: string): Promise<boolean> {
@@ -11,10 +15,28 @@ export async function apiLogin(username: string, password: string): Promise<bool
     return false;
   }
 }
-export async function apiMe(): Promise<string | null> {
+
+// Create a new account and sign in. Returns the server's validation error (e.g. "username taken") on failure.
+export async function apiRegister(username: string, password: string, mode: Mode): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const r = await fetch('/api/register', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ username, password, mode }),
+    });
+    if (r.ok) return { ok: true };
+    const data = await r.json().catch(() => ({}));
+    return { ok: false, error: (data.error as string) ?? 'Could not create account.' };
+  } catch {
+    return { ok: false, error: 'Network error — is the server running?' };
+  }
+}
+
+export async function apiMe(): Promise<Me | null> {
   try {
     const r = await fetch('/api/me');
-    return r.ok ? ((await r.json()).username as string) : null;
+    if (!r.ok) return null;
+    const d = await r.json();
+    return { username: d.username as string, mode: d.mode === 'easy' ? 'easy' : 'normal' };
   } catch {
     return null;
   }

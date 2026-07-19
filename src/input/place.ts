@@ -134,6 +134,7 @@ export function canPlaceSquare(state: GameState, cx: number, cy: number, dir: Di
 }
 
 export function placeSquare(state: GameState, cx: number, cy: number, dir: Direction): boolean {
+  if (state.mode === 'easy') return false; // x² is a multiply-family machine — forbidden in +/− easy mode
   if (!canPlaceSquare(state, cx, cy, dir)) return false;
   const d = DELTA[dir];
   const ax = Math.min(cx, cx + d.dx), ay = Math.min(cy, cy + d.dy); // anchor = top-left of the 1x2 box

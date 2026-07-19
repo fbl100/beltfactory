@@ -4,6 +4,8 @@ import type { ResourceNode } from './entities';
 import type { Building } from './buildings';
 import { isBlocked, addBuilding, buildingAt, rebuildOccupancy } from './buildings';
 import type { OpId } from '../content/operations';
+import type { Mode } from '../content/levels';
+import { startIndexForMode } from '../content/levels';
 import { MINER_EVERY_TICKS, OPERATOR_EVERY_TICKS } from '../content/config';
 
 export const CHUNK_SIZE = 16;
@@ -40,7 +42,8 @@ function instantiateBuilding(state: GameState, ab: AuthoredBuilding): void {
   } else if (ab.type === 'operator') {
     b = { type: 'operator', ax: ab.x, ay: ab.y, dir: ab.dir, op: ab.op, inputs: [], everyTicks: OPERATOR_EVERY_TICKS, sinceProduce: 0 };
   } else {
-    b = { type: 'target', ax: ab.x, ay: ab.y, dir: ab.dir, target: ab.target, required: ab.required };
+    // par is a placeholder here; progression.syncTargetToLevel sets the real par from the active level.
+    b = { type: 'target', ax: ab.x, ay: ab.y, dir: ab.dir, target: ab.target, required: ab.required, par: 0 };
   }
   addBuilding(state, b); // rejects on footprint conflict, so resume stays non-destructive
 }
@@ -95,10 +98,12 @@ export function ensureMiners(state: GameState): void {
   }
 }
 
-export function newGame(seed: number, gen: ChunkGenerator): GameState {
+export function newGame(seed: number, gen: ChunkGenerator, mode: Mode = 'normal'): GameState {
   const s = emptyState(seed);
-  ensureChunk(s, gen, 0, 0); // origin chunk holds the starting puzzle
-  ensureMiners(s);           // auto-place a miner on every starting deposit
+  s.mode = mode;
+  s.levelIndex = startIndexForMode(mode); // easy starts in the endless range; normal at campaign level 0
+  ensureChunk(s, gen, 0, 0);              // origin chunk holds the starting puzzle (gen must match `mode`)
+  ensureMiners(s);                        // auto-place a miner on every starting deposit
   return s;
 }
 
@@ -120,10 +125,20 @@ export function clearBuild(state: GameState): void {
   ensureMiners(state); // miners are permanent — put them back on every deposit
 }
 
+// Wipe the deposit layer (nodes + their automatic miners) so a new set can be placed. Easy mode deals
+// a FRESH hand of sources every puzzle, so its deposits change from one puzzle to the next. Keeps
+// belts/operators/hub; call it just before granting the new deposits, then ensureMiners.
+export function resetDeposits(state: GameState): void {
+  state.nodes.clear();
+  for (const [key, b] of state.buildings) if (b.type === 'miner') state.buildings.delete(key);
+  rebuildOccupancy(state);
+}
+
 // Reset an existing game IN PLACE (so all live references keep working): clear the
 // world and player build, then regenerate the origin puzzle fresh.
-export function resetGame(state: GameState, seed: number, gen: ChunkGenerator): void {
+export function resetGame(state: GameState, seed: number, gen: ChunkGenerator, mode: Mode = state.mode): void {
   state.seed = seed;
+  state.mode = mode; // may switch modes; `gen` must be built for the same mode
   state.tick = 0;
   state.belts.clear();
   state.splitters.clear();
@@ -134,9 +149,15 @@ export function resetGame(state: GameState, seed: number, gen: ChunkGenerator): 
   state.loadedChunks.clear();
   state.items = [];
   state.nextItemId = 1;
-  state.levelIndex = 0;   // back to level 0 BEFORE regen, so the origin puzzle == LEVELS[0]
+  state.levelIndex = startIndexForMode(mode); // BEFORE regen, so the origin puzzle matches the mode
   state.delivered = 0;
   state.misses = 0;
   state.status = 'playing';
+  state.bestStars.clear(); // "Start Over" wipes ALL progress, including earned golf stars
+  state.lastStars = 0;
+  state.replayReturn = null; // MUST clear, else reconcileLevel would abort-replay back to the old level
+  state.solvedCount = 0;
+  state.starsTotal = 0;
+  state.perfectCount = 0;
   ensureChunk(state, gen, 0, 0);
 }

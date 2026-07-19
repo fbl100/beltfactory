@@ -2,13 +2,14 @@ import { createPixiRenderer } from './render/pixi-renderer';
 import { DEFAULT_THEME } from './render/themes';
 import type { Theme, Camera } from './render/renderer';
 import { newGame, resetGame, clearBuild, ensureChunksInRange } from './sim/world';
-import { mvpGenerator } from './content/worldgen';
-import { opsForLevel, ENDLESS_START } from './content/levels';
+import { makeGenerator } from './content/worldgen';
+import { opsForLevel, ENDLESS_START, EASY_SUB_UNLOCK } from './content/levels';
+import type { Mode } from './content/levels';
 import type { OpId } from './content/operations';
 import { TUNNEL_REACH } from './content/config';
 import { serialize, deserialize } from './sim/save';
 import { step, TICKS_PER_SECOND } from './sim/tick';
-import { reconcileLevel } from './sim/progression';
+import { reconcileLevel, startReplay, skipTutorial } from './sim/progression';
 import type { GameState, Direction } from './sim/grid';
 import { DELTA, parseKey } from './sim/grid';
 import {
@@ -28,9 +29,10 @@ import { apiMe, apiLogout, apiGetState, apiSaveState } from './net/api';
 
 const parent = document.getElementById('app')!;
 
-// A corrupt / partial / incompatible (v1) save must never brick the game — fall
-// back to a fresh world instead of throwing to a blank screen.
-function loadOrNewGame(saved: string | null): GameState {
+// A corrupt / partial / incompatible (v1) save must never brick the game — fall back to a fresh
+// world instead of throwing to a blank screen. `mode` seeds a BRAND-NEW game (the account's sign-up
+// choice); an existing save carries its own mode, so it wins when present.
+function loadOrNewGame(saved: string | null, mode: Mode): GameState {
   if (saved) {
     try {
       const s = deserialize(saved);
@@ -41,13 +43,18 @@ function loadOrNewGame(saved: string | null): GameState {
     }
     console.warn('Ignoring an unreadable save; starting a new game.');
   }
-  return newGame(Date.now() >>> 0, mvpGenerator);
+  const fresh = newGame(Date.now() >>> 0, makeGenerator(mode), mode);
+  reconcileLevel(fresh); // sync the hub's par + golf baseline for the starting level
+  return fresh;
 }
 
 async function boot() {
-  let username = await apiMe();
-  if (!username) { await showLogin(parent); username = await apiMe(); }
-  const state: GameState = loadOrNewGame(await apiGetState());
+  let me = await apiMe();
+  if (!me) { await showLogin(parent); me = await apiMe(); }
+  const username = me?.username;
+  const state: GameState = loadOrNewGame(await apiGetState(), me?.mode ?? 'normal');
+  // The chunk generator must match the save's mode (its origin deposits + goal differ per mode).
+  let gen = makeGenerator(state.mode);
 
   let theme: Theme = DEFAULT_THEME;
   const renderer = createPixiRenderer(parent);
@@ -58,6 +65,9 @@ async function boot() {
   // When a level-up reveals a new number deposit, nudge the camera to it if it isn't already
   // comfortably in view — so she never has to hunt off-screen for the new number.
   let lastLevelIndex = state.levelIndex;
+  // True from when a replay is started until its return fires P3, so the level-up handler can show a
+  // "back home" toast instead of a false "new level" one. Reset on any non-replay jump (reset/skip).
+  let replayActive = false;
   const seenNodeKeys = new Set(state.nodes.keys());
   function ensureNodeVisible(nx: number, ny: number): void {
     const b = renderer.visibleCellBounds();
@@ -85,8 +95,10 @@ async function boot() {
     onTool: (tl) => { tool = tl; pendingTunnel = null; beltAnchor = null; updateCursor(); },
     onReset: () => {
       if (!confirm('Start over from Level 1? This wipes ALL progress and everything you built.')) return;
-      resetGame(state, Date.now() >>> 0, mvpGenerator);
+      resetGame(state, Date.now() >>> 0, gen, state.mode);
+      reconcileLevel(state); // re-sync the hub's par + golf baseline after the wipe
       lastLevelIndex = state.levelIndex;
+      replayActive = false;
       seenNodeKeys.clear();
       for (const k of state.nodes.keys()) seenNodeKeys.add(k);
       dirty = true;
@@ -97,6 +109,46 @@ async function boot() {
       clearBuild(state);
       dirty = true;
       apiSaveState(serialize(state)); // persist the cleared build
+    },
+    // Replay a past endless puzzle (from the ⭐ My Puzzles screen). startReplay jumps the hub to that
+    // level on a fresh board and remembers home; finishing it returns her. Sync lastLevelIndex to the
+    // (backward) jump so the single level-up source (P3) doesn't misfire now but DOES fire on return.
+    onReplay: (index: number) => {
+      startReplay(state, index);
+      lastLevelIndex = state.levelIndex;
+      replayActive = true; // the eventual return-to-home should read as "replay done", not a level-up
+      for (const k of state.nodes.keys()) seenNodeKeys.add(k);
+      dirty = true;
+      apiSaveState(serialize(state));
+    },
+    // Skip the authored tutorial and jump straight into endless puzzles. skipTutorial backfills the
+    // missing deposits ({2,3,5,7}) and points the hub at the first endless goal on a fresh board.
+    onSkipTutorial: () => {
+      if (state.levelIndex >= ENDLESS_START) return;
+      if (!confirm('Skip the practice levels and jump straight to endless puzzles?')) return;
+      skipTutorial(state);
+      lastLevelIndex = state.levelIndex; // suppress the level-up celebration for this deliberate jump
+      replayActive = false;
+      for (const k of state.nodes.keys()) seenNodeKeys.add(k);
+      dirty = true;
+      apiSaveState(serialize(state));
+    },
+    // Switch difficulty (Easy + − / Normal). Different modes are different progressions, so this starts
+    // a fresh game in the chosen mode with a matching generator. lastLevelIndex/replay reset like Start Over.
+    onSetMode: (mode) => {
+      if (state.mode === mode) return;
+      const label = mode === 'easy' ? 'Easy (＋ −, for a little kid)' : 'Normal';
+      if (!confirm(`Switch to ${label} mode? This starts a fresh game and replaces what's on this account.`)) return;
+      gen = makeGenerator(mode);
+      resetGame(state, Date.now() >>> 0, gen, mode);
+      reconcileLevel(state);
+      lastLevelIndex = state.levelIndex;
+      replayActive = false;
+      tool = 'belt'; hud.setTool('belt'); pendingTunnel = null; beltAnchor = null; updateCursor(); // don't carry a now-hidden tool (e.g. x²) into the new mode
+      seenNodeKeys.clear();
+      for (const k of state.nodes.keys()) seenNodeKeys.add(k);
+      dirty = true;
+      apiSaveState(serialize(state));
     },
     // The HUD's 🔊 button drives the Sfx that lives here; it paints itself from the return value.
     onMuteToggle: () => { sfx.unlock(); return sfx.toggleMuted(); },
@@ -138,7 +190,7 @@ async function boot() {
   // The operator type to build: the HUD's selected op, gated to what this level has unlocked.
   const currentOp = (): OpId => {
     const op = hud.getOp();
-    return opsForLevel(state.levelIndex).includes(op) ? op : 'add';
+    return opsForLevel(state.levelIndex, state.mode).includes(op) ? op : 'add';
   };
 
   // Belts drag-to-paint; buildings are single centered clicks; right-drag erases.
@@ -183,7 +235,7 @@ async function boot() {
       sound.belt();
     }
     else if (tool === 'operator') { if (placeOperator(state, c.x, c.y, placeDir, currentOp())) { sound.built(); stampPainted(operatorFootprintCells(c.x, c.y, placeDir)); } paintMode = null; lastCell = null; }
-    else if (tool === 'square') { if (placeSquare(state, c.x, c.y, placeDir)) { sound.built(); stampPainted(squareFootprintCells(c.x, c.y, placeDir)); } paintMode = null; lastCell = null; }
+    else if (tool === 'square' && state.mode !== 'easy') { if (placeSquare(state, c.x, c.y, placeDir)) { sound.built(); stampPainted(squareFootprintCells(c.x, c.y, placeDir)); } paintMode = null; lastCell = null; } // x² is a multiply-family tool — never in easy mode
     else if (tool === 'splitter') { if (placeSplitter(state, c.x, c.y, placeDir)) sound.built(); paintMode = null; lastCell = null; }
     else { placeTunnelTool(c); paintMode = null; lastCell = null; } // tunnel
     dirty = true; e.preventDefault();
@@ -249,6 +301,7 @@ async function boot() {
   }, { passive: false });
   window.addEventListener('keydown', (e) => {
     if (isPaused()) return; // frozen during the level-up celebration (F6); celebrate.ts handles dismiss
+    if (hud.isModalOpen()) return; // ⭐ My Stars overlay is modal — don't let build/pan hotkeys leak through
     sfx.unlock(); // first gesture unlocks Web Audio
     if (e.key === 'm' || e.key === 'M') { sfx.toggleMuted(); hud.setMuted(sfx.isMuted()); return; }
     if (e.key === ' ') { spaceDown = true; updateCursor(); e.preventDefault(); return; } // hold space, drag to pan
@@ -259,12 +312,15 @@ async function boot() {
     // slots) so a slot's key badge and the key we listen for can't drift:
     // 1 Belt · 2 Split · 3 Tunnel · 4–7 the ops · 0 Erase.
     const hotTool = TOOL_HOTKEYS[e.key];
-    if (hotTool) { tool = hotTool; hud.setTool(hotTool); pendingTunnel = null; beltAnchor = null; updateCursor(); return; }
+    if (hotTool) {
+      if (hotTool === 'square' && state.mode === 'easy') return; // x² is a multiply tool — hidden in easy mode
+      tool = hotTool; hud.setTool(hotTool); pendingTunnel = null; beltAnchor = null; updateCursor(); return;
+    }
     const hotOp = OP_HOTKEYS[e.key];
     if (hotOp) {
       // An op hotkey selects the operator tool AND the op in one press (mirrors the slot click),
-      // gated to what this level has unlocked — a locked op key does nothing, silently.
-      if (opsForLevel(state.levelIndex).includes(hotOp)) {
+      // gated to what this mode/level allows — a locked op key does nothing, silently.
+      if (opsForLevel(state.levelIndex, state.mode).includes(hotOp)) {
         tool = 'operator'; hud.setOp(hotOp); pendingTunnel = null; beltAnchor = null; updateCursor();
       }
       return;
@@ -293,7 +349,8 @@ async function boot() {
       const c = centerOf(b);
       const s = renderer.worldToScreen(c.x + 0.5, c.y + 0.5); // hub cell-center in canvas CSS px
       const rect = canvas.getBoundingClientRect();
-      celebrate({ text: formatValue(made), x: rect.left + s.x, y: rect.top + s.y });
+      // lastStars was set by advanceLevel during the tick that just triggered this level-up.
+      celebrate({ text: formatValue(made), x: rect.left + s.x, y: rect.top + s.y, stars: state.lastStars });
       return;
     }
   }
@@ -321,14 +378,24 @@ async function boot() {
         if (!seenNodeKeys.has(k)) { seenNodeKeys.add(k); const p = parseKey(k); ensureNodeVisible(p.x, p.y); }
       }
       const newGoal = formatValue(targetValue(state) ?? 0n);
-      hud.announceGoal(state.levelIndex === ENDLESS_START
-        ? `♾️ Endless mode! Keep going — make ${newGoal}` // first level past the campaign
+      // A replay's return jumps levelIndex back UP to home (a positive delta), so it lands here too —
+      // but she didn't advance, so announce "back home", not a false new level. fireCelebration still
+      // celebrates the number she just made (madeBefore = the replayed puzzle's target).
+      const returningFromReplay = replayActive;
+      replayActive = false;
+      const easy = state.mode === 'easy';
+      const easyNo = state.levelIndex - ENDLESS_START + 1; // easy counts puzzles from 1
+      hud.announceGoal(
+        returningFromReplay ? `↩️ Replay done! Back to ${easy ? `Puzzle ${easyNo}` : `Level ${state.levelIndex + 1}`}.`
+        : easy && state.levelIndex - ENDLESS_START === EASY_SUB_UNLOCK ? `🎉 New machine unlocked: Take-Away (−)! Now make ${newGoal}`
+        : easy ? `⭐ Puzzle ${easyNo}! Now make ${newGoal}`
+        : state.levelIndex === ENDLESS_START ? `♾️ Endless mode! Keep going — make ${newGoal}` // first level past the campaign
         : `⭐ Level ${state.levelIndex + 1}! Now make ${newGoal}`);
       fireCelebration(madeBefore); // burst confetti of the number she just made from the hub
       pauseUntil = now + PAUSE_MS; // brief freeze so the celebration reads
     }
     const cr = renderer.visibleChunkRange();
-    ensureChunksInRange(state, mvpGenerator, cr.minCx, cr.minCy, cr.maxCx, cr.maxCy);
+    ensureChunksInRange(state, gen, cr.minCx, cr.minCy, cr.maxCx, cr.maxCy);
     // placement ghost for the building tools (operator 1x3, squarer 1x2)
     if (hover && tool === 'operator') {
       const ok = canPlaceOperator(state, hover.x, hover.y, placeDir);
@@ -339,7 +406,7 @@ async function boot() {
       const ox = hover.x - (w === 3 ? 1 : 0);
       const oy = hover.y - (h === 3 ? 1 : 0);
       renderer.setPreview({ type: 'operator', ox, oy, w, h, dir: placeDir, valid: ok });
-    } else if (hover && tool === 'square') {
+    } else if (hover && tool === 'square' && state.mode !== 'easy') {
       // A 1x2 squarer: input on the hovered cell, output one cell along dir.
       const ok = canPlaceSquare(state, hover.x, hover.y, placeDir);
       const d = DELTA[placeDir];

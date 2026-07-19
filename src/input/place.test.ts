@@ -1,11 +1,23 @@
 import { describe, it, expect } from 'vitest';
 import {
   paintBeltLine, removeCell, eraseAt, eraseLine,
-  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator, placeSplitter, placeTunnel,
+  footprintClear, canPlaceMiner, canPlaceOperator, placeMiner, placeOperator, placeSplitter, placeTunnel, placeSquare,
 } from './place';
 import { emptyState, beltAt, splitterAt, tunnelAt, cellKey } from '../sim/grid';
 import { addBuilding, buildingAt } from '../sim/buildings';
 import { createItem } from '../sim/items';
+
+describe('input.placeSquare (x² is a multiply-family tool)', () => {
+  it('builds a squarer in normal mode but never in easy mode', () => {
+    const normal = emptyState(1); // mode defaults to 'normal'
+    expect(placeSquare(normal, 5, 5, 'right')).toBe(true);
+    expect(buildingAt(normal, 5, 5)?.type).toBe('square');
+
+    const easy = emptyState(1); easy.mode = 'easy';
+    expect(placeSquare(easy, 5, 5, 'right')).toBe(false); // forbidden in +/− easy mode
+    expect(buildingAt(easy, 5, 5)).toBeUndefined();
+  });
+});
 
 describe('input.belts (footprint-aware)', () => {
   it('paints a straight run', () => {
@@ -129,7 +141,7 @@ describe('input.erase', () => {
   });
   it('refuses to erase the target', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 12n, required: 5 });
+    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 12n, required: 5 , par: 0});
     expect(eraseAt(s, 1, 1)).toBe(false);
     expect(buildingAt(s, 1, 1)?.type).toBe('target');
   });

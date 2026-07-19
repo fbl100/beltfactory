@@ -1,12 +1,13 @@
 import type { GameState } from './grid';
 import { rebuildOccupancy } from './buildings';
 
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 
 // Versions this reader can still load. Older saves migrate on load: v3 (pre-progression) rolls
 // into level 0 via reconcileLevel() at boot; v4 had a different operator-inputs shape, which we
-// simply reset (see deserialize). Either way the family's built factory survives the upgrade.
-const READABLE_VERSIONS = new Set([3, 4, 5]);
+// simply reset (see deserialize); v5 predates golf stars, so its bestStars defaults to empty.
+// Either way the family's built factory (and, from v6 on, their earned stars) survives the upgrade.
+const READABLE_VERSIONS = new Set([3, 4, 5, 6]);
 
 // JSON has no BigInt: encode as { __big: "<decimal>" } and revive on load.
 function replacer(_key: string, value: unknown): unknown {
@@ -21,11 +22,17 @@ export function serialize(state: GameState): string {
   return JSON.stringify({
     version: SAVE_VERSION,
     seed: state.seed,
+    mode: state.mode,
     tick: state.tick,
     status: state.status,
     nextItemId: state.nextItemId,
     levelIndex: state.levelIndex,
     delivered: state.delivered,
+    bestStars: [...state.bestStars.entries()], // levelIndex -> best golf stars; small ints, no BigInt
+    replayReturn: state.replayReturn,          // null unless mid-replay; a reload uses it to return home
+    solvedCount: state.solvedCount,            // lifetime golf tallies (survive bestStars pruning)
+    starsTotal: state.starsTotal,
+    perfectCount: state.perfectCount,
     items: state.items,
     belts: [...state.belts.entries()],
     splitters: [...state.splitters.entries()],
@@ -43,6 +50,7 @@ export function deserialize(json: string): GameState {
   const state: GameState = {
     version: o.version,
     seed: o.seed,
+    mode: o.mode === 'easy' ? 'easy' : 'normal', // pre-mode saves default to normal
     tick: o.tick,
     status: o.status,
     nextItemId: o.nextItemId,
@@ -57,6 +65,15 @@ export function deserialize(json: string): GameState {
     occupancy: new Map(),
     loadedChunks: new Set(o.chunks),
     misses: 0,
+    // `?? []` keeps pre-v6 saves loadable (they simply start with no earned stars). lastStars is
+    // session-only (only meaningful during the celebration right after a completion).
+    bestStars: new Map(o.bestStars ?? []),
+    lastStars: 0,
+    replayReturn: typeof o.replayReturn === 'number' ? o.replayReturn : null,
+    // Pre-counter saves default to 0; reconcileLevel backfills them from bestStars on load.
+    solvedCount: o.solvedCount ?? 0,
+    starsTotal: o.starsTotal ?? 0,
+    perfectCount: o.perfectCount ?? 0,
   };
   rebuildOccupancy(state); // derive the spatial index from the buildings map
   // Operator pending inputs and a squarer's pending value are transient (a value mid-computation);

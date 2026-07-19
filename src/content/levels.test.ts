@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { LEVELS, ENDLESS_START, levelAt, clampLevelIndex, opsForLevel } from './levels';
+import { LEVELS, ENDLESS_START, levelAt, clampLevelIndex, opsForLevel, parFor, startIndexForMode, EASY_SUB_UNLOCK } from './levels';
 import { ALL_OPS } from './operations';
 import type { OpId } from './operations';
 
@@ -162,6 +162,56 @@ describe('content/levels: endless generator', () => {
       }
   });
 
+  it('every generated level carries a positive, finite golf par', () => {
+    for (const seed of SEEDS)
+      for (let k = 0; k < 60; k++) {
+        const { par } = levelAt(ENDLESS_START + k, seed);
+        expect(Number.isInteger(par)).toBe(true);
+        expect(par).toBeGreaterThanOrEqual(1); // a target is never a raw deposit, so it costs >=1 machine
+        expect(par).toBeLessThanOrEqual(12);   // sanity: short solutions exist for every generated goal
+      }
+  });
+
+  it('parFor matches the fewest multiplies for clean products (tight par for prime chains)', () => {
+    expect(parFor(6n)).toBe(1);    // 2×3
+    expect(parFor(4n)).toBe(1);    // 2×2
+    expect(parFor(30n)).toBe(2);   // 6×5
+    expect(parFor(210n)).toBe(3);  // 2×3×5×7 — three multiplies, no reuse shortcut
+  });
+
+  it('parFor searches ALL ops for the cheapest route, not just multiplication', () => {
+    // 36 is NOT 6×6 (3 machines); the solver finds 3×(5+7) = 3×12 = 36 in 2, mixing + and ×.
+    expect(parFor(36n)).toBe(2);
+  });
+
+  it('difficulty is PAR-driven and gentle at the start (stage 0: par 1-2, small numbers)', () => {
+    for (const seed of SEEDS)
+      for (let k = 0; k < 20; k++) { // stage 0 = the first STAGE_SIZE (20) puzzles
+        const lvl = levelAt(ENDLESS_START + k, seed);
+        expect(lvl.par).toBeGreaterThanOrEqual(1);
+        expect(lvl.par).toBeLessThanOrEqual(2);   // few machines
+        expect(lvl.target).toBeLessThanOrEqual(60n); // and small, readable numbers
+      }
+  });
+
+  it('later stages demand more machines (the par FLOOR rises every ~20 puzzles)', () => {
+    // Stage 3 starts at endless offset 60 (STAGE_SIZE 20): minPar is floored at 3.
+    for (const seed of SEEDS)
+      for (let k = 60; k < 80; k++)
+        expect(levelAt(ENDLESS_START + k, seed).par).toBeGreaterThanOrEqual(3);
+  });
+
+  it('average par climbs stage over stage (harder as she progresses)', () => {
+    const avgPar = (from: number, to: number) => {
+      let s = 0, n = 0;
+      for (let k = from; k < to; k++) { s += levelAt(ENDLESS_START + k, 42).par; n++; }
+      return s / n;
+    };
+    const early = avgPar(0, 20), mid = avgPar(40, 60), late = avgPar(80, 120);
+    expect(early).toBeLessThan(mid);
+    expect(mid).toBeLessThanOrEqual(late);
+  });
+
   it('eases in with 2-digit targets for the first 10 endless levels', () => {
     for (const seed of SEEDS)
       for (let k = 0; k < 10; k++) {
@@ -206,5 +256,65 @@ describe('content/levels: endless generator', () => {
     let laterBigger = 0;
     for (const seed of SEEDS) if (avg(45, 60, seed) > avg(0, 15, seed)) laterBigger++;
     expect(laterBigger).toBeGreaterThanOrEqual(4); // holds for at least 4 of 5 seeds
+  });
+});
+
+describe('content/levels: easy mode (addition & subtraction, for a 6-year-old)', () => {
+  const SEEDS = [1, 42, 7, 999, 12345];
+  const handOf = (idx: number, seed: number): bigint[] =>
+    levelAt(idx, seed, 'easy').grantNodes.map((n) => n.value);
+
+  it('startIndexForMode: easy starts in the endless range, normal at level 0', () => {
+    expect(startIndexForMode('normal')).toBe(0);
+    expect(startIndexForMode('easy')).toBe(ENDLESS_START);
+  });
+
+  it('addition-only until the Take-Away unlock, then + and −', () => {
+    expect(opsForLevel(ENDLESS_START, 'easy')).toEqual(['add']);
+    expect(opsForLevel(ENDLESS_START + EASY_SUB_UNLOCK - 1, 'easy')).toEqual(['add']);
+    expect(opsForLevel(ENDLESS_START + EASY_SUB_UNLOCK, 'easy')).toEqual(['add', 'subtract']);
+    expect(opsForLevel(ENDLESS_START, 'normal').length).toBe(4); // normal is unaffected
+  });
+
+  it('every puzzle deals a FRESH hand of >=3 distinct small sources', () => {
+    for (const seed of SEEDS)
+      for (let k = 0; k < 60; k++) {
+        const hand = handOf(ENDLESS_START + k, seed);
+        expect(hand.length).toBeGreaterThanOrEqual(3);
+        expect(new Set(hand).size).toBe(hand.length);            // distinct
+        for (const v of hand) { expect(v).toBeGreaterThanOrEqual(1n); expect(v).toBeLessThanOrEqual(9n); }
+      }
+  });
+
+  it('the hand actually varies puzzle to puzzle (kills the repeated-goal problem)', () => {
+    const seen = new Set<string>();
+    for (let k = 0; k < 30; k++) seen.add(handOf(ENDLESS_START + k, 42).map(String).join(','));
+    expect(seen.size).toBeGreaterThanOrEqual(6); // many different hands over a run
+  });
+
+  it('every target is small, in par band, and ALWAYS buildable by addition alone (never stuck)', () => {
+    for (const seed of SEEDS)
+      for (let k = 0; k < 60; k++) {
+        const lvl = levelAt(ENDLESS_START + k, seed, 'easy');
+        const hand = lvl.grantNodes.map((n) => n.value);
+        expect(lvl.target).toBeGreaterThanOrEqual(4n);
+        expect(lvl.target).toBeLessThanOrEqual(20n);
+        expect(lvl.par).toBeGreaterThanOrEqual(1);
+        expect(lvl.required).toBe(5);
+        // The crucial guarantee: an addition-only route always exists, so she can never be blocked.
+        expect(reachableWithOps(lvl.target, hand, ['add'])).toBe(true);
+      }
+  });
+
+  it('is deterministic and gentle at the start (stage 0: par ≤ 2, target ≤ 8)', () => {
+    for (const seed of SEEDS) {
+      expect(levelAt(ENDLESS_START + 3, seed, 'easy')).toEqual(levelAt(ENDLESS_START + 3, seed, 'easy'));
+      for (let k = 0; k < 10; k++) { // first stage = 10 puzzles
+        const lvl = levelAt(ENDLESS_START + k, seed, 'easy');
+        expect(lvl.par).toBeLessThanOrEqual(2);
+        expect(lvl.target).toBeLessThanOrEqual(10n);
+        expect(lvl.ops).toEqual(['add']); // subtraction not yet unlocked in the first stretch
+      }
+    }
   });
 });

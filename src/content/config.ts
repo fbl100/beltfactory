@@ -11,3 +11,15 @@ export const OPERATOR_EVERY_TICKS = 5;  // 1 output / 2s => 30/min out (consumes
 // Underground belt: the exit may sit up to this many cells ahead of the entrance,
 // so up to (TUNNEL_REACH - 1) = 4 belts can pass overhead.
 export const TUNNEL_REACH = 5;
+
+// ---- golf scoring (endless "puzzle" mode) ----
+// Each endless puzzle has a `par` = the fewest operator machines needed to build its target from
+// scratch (see content/levels.ts). She earns stars by how close her machine count gets to par:
+//   3 = at or UNDER par (a clever, tight solution)   2 = within a little slack   1 = solved at all.
+// She always gets at least 1 star for finishing — this is encouragement, never punishment.
+// `used` counts operator + squarer machines she built for this puzzle (a fresh board each time).
+export function starsFor(used: number, par: number): 1 | 2 | 3 {
+  if (used <= par) return 3;
+  if (used <= par + Math.max(1, Math.ceil(par / 2))) return 2;
+  return 1;
+}

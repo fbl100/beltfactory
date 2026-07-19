@@ -18,7 +18,9 @@ export interface OperatorInput { tip: 'A' | 'B'; value: bigint }
 // Holds at most ONE pending value per tip, so two items from the SAME belt can't pair (that
 // produced e.g. 3×3=9 instead of 2×3=6). A and B are interchangeable (ops are order-independent).
 export interface OperatorBuilding extends Base { type: 'operator'; op: OpId; inputs: OperatorInput[]; everyTicks: number; sinceProduce: number }
-export interface TargetBuilding extends Base { type: 'target'; target: bigint; required: number } // dir vestigial (accepts all 4 sides)
+// `par` = golf par for the current goal (fewest operator machines to build it), synced from the
+// active level by progression.syncTargetToLevel so the HUD/celebration can read it straight off state.
+export interface TargetBuilding extends Base { type: 'target'; target: bigint; required: number; par: number } // dir vestigial (accepts all 4 sides)
 // A 1x2 UNARY "squarer": a number arriving on the input end is squared (n -> n²) and emitted from
 // the output end (which points along `dir`). Holds at most one pending value; `pending` is transient
 // (reset on load, like an operator's inputs).
@@ -29,6 +31,14 @@ export type Building = MinerBuilding | OperatorBuilding | TargetBuilding | Squar
 // bar (tips left & right); output left/right -> a vertical bar (tips above & below).
 function operatorHoriz(dir: Direction): boolean {
   return dir === 'up' || dir === 'down';
+}
+
+// The machines the player BUILT toward a puzzle: operators and squarers. Miners (automatic) and the
+// target hub don't count. This is the number compared against the level's par for the star rating.
+export function countMachines(state: GameState): number {
+  let n = 0;
+  for (const b of state.buildings.values()) if (b.type === 'operator' || b.type === 'square') n++;
+  return n;
 }
 
 // Bounding-box size in cells. Miner/target are 3x3; an operator is a 1x3 bar oriented by its output;

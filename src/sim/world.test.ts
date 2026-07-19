@@ -62,7 +62,7 @@ describe('chunks', () => {
     const s = newGame(7, gen);          // origin: node (2,2), miner center (2,2)
     s.levelIndex = 2;
     s.delivered = 4; s.misses = 3;
-    addBuilding(s, { type: 'target', ax: 20, ay: 20, dir: 'right', target: 21n, required: 8 }); // center (21,21)
+    addBuilding(s, { type: 'target', ax: 20, ay: 20, dir: 'right', target: 21n, required: 8 , par: 0}); // center (21,21)
     s.belts.set(cellKey(9, 9), { type: 'belt', dir: 'right' });
     s.splitters.set(cellKey(10, 9), { type: 'splitter', dir: 'right', next: 0 });
     s.items.push(createItem(1, 5n, 9, 9));

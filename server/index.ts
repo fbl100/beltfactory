@@ -2,7 +2,7 @@ import express from 'express';
 import cookieSession from 'cookie-session';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadUsers, verifyUser } from './users';
+import { loadUsers, verifyUser, registerUser, findUser } from './users';
 import { loadState, saveState } from './storage';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -17,7 +17,8 @@ if (DEFAULT_SECRETS.includes(SESSION_SECRET)) {
   console.warn('WARNING: SESSION_SECRET is unset or a default. Set a long random SESSION_SECRET before real use.');
 }
 
-const users = loadUsers();
+// In-memory user list, loaded once from <DATA_DIR>/users.json; registration appends to it and persists.
+const users = loadUsers(DATA_DIR);
 const app = express();
 
 app.use(express.json({ limit: '4mb' }));
@@ -35,13 +36,23 @@ function requireUser(req: express.Request, res: express.Response): string | null
   return u;
 }
 
+// Create an account (self-service; open registration for the household LAN) and sign in immediately.
+app.post('/api/register', (req, res) => {
+  const { username, password, mode } = req.body ?? {};
+  const result = registerUser(DATA_DIR, users, username, password, mode);
+  if (!result.ok) return res.status(400).json({ error: result.error });
+  req.session!.username = result.user.username;
+  res.json({ username: result.user.username, mode: result.user.mode });
+});
+
 app.post('/api/login', (req, res) => {
   const { username, password } = req.body ?? {};
   if (typeof username !== 'string' || typeof password !== 'string' || !verifyUser(users, username, password)) {
     return res.status(401).json({ error: 'bad credentials' });
   }
-  req.session!.username = username;
-  res.json({ username });
+  const user = findUser(users, username)!;
+  req.session!.username = user.username;
+  res.json({ username: user.username, mode: user.mode });
 });
 
 app.post('/api/logout', (req, res) => { req.session = null; res.json({ ok: true }); });
@@ -49,7 +60,8 @@ app.post('/api/logout', (req, res) => { req.session = null; res.json({ ok: true 
 app.get('/api/me', (req, res) => {
   const u = req.session?.username;
   if (!u) return res.status(401).json({ error: 'not logged in' });
-  res.json({ username: u });
+  // mode seeds a brand-new game; once a save exists it is authoritative, so a missing record → normal.
+  res.json({ username: u, mode: findUser(users, u)?.mode ?? 'normal' });
 });
 
 app.get('/api/state', (req, res) => {

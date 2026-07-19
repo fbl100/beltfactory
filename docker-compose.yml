@@ -4,7 +4,7 @@ services:
     ports:
       - "8080:3000"
     environment:
-      - SEED_USERS=${SEED_USERS:-dad:changeme,abby:apples}
+      # Accounts are now self-service (players create their own username/password at /); no seeded users.
       - SESSION_SECRET=${SESSION_SECRET:-please-change-this}
       - DATA_DIR=/app/data
     volumes:

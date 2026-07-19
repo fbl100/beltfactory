@@ -25,7 +25,11 @@ const CSS = `
 .bf-banner { position: fixed; left: 50%; top: 22%; transform: translate(-50%, -50%);
   background: #2e7d32; color: #fff; padding: 16px 30px; border-radius: 18px; font-weight: 900;
   font-size: clamp(28px, 6vw, 60px); box-shadow: 0 10px 40px #0007; white-space: nowrap;
-  animation: bf-pop 320ms cubic-bezier(.2,1.3,.4,1) forwards; }
+  text-align: center; animation: bf-pop 320ms cubic-bezier(.2,1.3,.4,1) forwards; }
+.bf-stars { margin-top: 8px; font-size: clamp(24px, 5vw, 46px); line-height: 1; letter-spacing: 4px;
+  animation: bf-stars-pop 500ms 260ms cubic-bezier(.2,1.3,.4,1) both; }
+.bf-star-off { opacity: .28; }
+@keyframes bf-stars-pop { 0% { transform: scale(0); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
 @keyframes bf-pop {
   0%   { transform: translate(-50%, -50%) scale(.5); opacity: 0; }
   100% { transform: translate(-50%, -50%) scale(1);  opacity: 1; }
@@ -33,6 +37,7 @@ const CSS = `
 @media (prefers-reduced-motion: reduce) {
   .bf-confetti { animation-duration: 1ms; }
   .bf-banner   { animation: none; }
+  .bf-stars    { animation: none; }
 }
 `;
 
@@ -48,7 +53,8 @@ const COLORS = ['#ffd54f', '#4fc3f7', '#ff8a65', '#81c784', '#ba68c8', '#fff176'
 
 // Fire a celebration anchored at viewport pixel (x,y) — the hub's screen center. `text` is the number
 // she just made (e.g. "12"); it becomes both the confetti glyph and the "You made 12!" banner.
-export function celebrate(opts: { text: string; x: number; y: number }): void {
+// `stars` (1-3, optional) shows the golf rating for this puzzle under the banner.
+export function celebrate(opts: { text: string; x: number; y: number; stars?: number }): void {
   ensureStyle();
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -79,7 +85,20 @@ export function celebrate(opts: { text: string; x: number; y: number }): void {
 
   const banner = document.createElement('div');
   banner.className = 'bf-banner';
-  banner.textContent = `You made ${opts.text}!`;
+  const line = document.createElement('div');
+  line.textContent = `You made ${opts.text}!`;
+  banner.appendChild(line);
+  // A 1-3 star golf rating (3 = at/under par). Filled stars are gold; unearned ones dim so she can
+  // see there's a better score to chase — the "beat par next time" hook.
+  const stars = Math.max(0, Math.min(3, Math.round(opts.stars ?? 0)));
+  if (stars > 0) {
+    const row = document.createElement('div');
+    row.className = 'bf-stars';
+    row.textContent = '★★★';
+    // dim the unearned tail without losing the three-slot layout
+    row.innerHTML = '★'.repeat(stars) + `<span class="bf-star-off">${'★'.repeat(3 - stars)}</span>`;
+    banner.appendChild(row);
+  }
   overlay.appendChild(banner);
 
   // Auto-dismiss after ~3s, or on the first click / keypress. Capture-phase window listeners so the

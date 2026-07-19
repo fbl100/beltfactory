@@ -15,7 +15,7 @@ const miner = (ax: number, ay: number, dir: Direction): MinerBuilding =>
 const op = (ax: number, ay: number, dir: Direction): OperatorBuilding =>
   ({ type: 'operator', ax, ay, dir, op: 'add', inputs: [], everyTicks: 20, sinceProduce: 0 });
 const target = (ax: number, ay: number, dir: Direction): TargetBuilding =>
-  ({ type: 'target', ax, ay, dir, target: 12n, required: 5 });
+  ({ type: 'target', ax, ay, dir, target: 12n, required: 5 , par: 0});
 
 describe('acceptKindAt / acceptsItemAt (shared with tick.advanceBeltItem)', () => {
   it('carrier cells (belt/splitter/tunnel) accept', () => {

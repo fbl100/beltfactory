@@ -207,7 +207,7 @@ describe('tick: target / win', () => {
   it('completing the last campaign level advances into endless mode (never "wins")', () => {
     const s = emptyState(1);
     s.levelIndex = LEVELS.length - 1; // last authored level — clearing it flips into endless, not a win
-    const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 };
+    const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 , par: 0};
     addBuilding(s, t); // center (1,1); accepts on all 4 edges (left edge = (0,1))
     setBelt(s, -1, 1, belt('right')); // feeds the left edge (0,1)
     s.items.push(createItem(1, 9n, -1, 1));
@@ -225,7 +225,7 @@ describe('tick: target / win', () => {
   it('reaching the required count on a non-final level advances the goal instead of winning', () => {
     const s = emptyState(1);
     s.levelIndex = 0; // not the final level
-    const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 };
+    const t: TargetBuilding = { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 2 , par: 0};
     addBuilding(s, t);
     setBelt(s, -1, 1, belt('right'));
     s.items.push(createItem(1, 9n, -1, 1));
@@ -240,7 +240,7 @@ describe('tick: target / win', () => {
   });
   it('counts a miss (not a delivery) on a wrong value', () => {
     const s = emptyState(1);
-    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 3 });
+    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: 9n, required: 3 , par: 0});
     setBelt(s, -1, 1, belt('right'));
     s.items.push(createItem(1, 8n, -1, 1));
     step(s);
@@ -252,7 +252,7 @@ describe('tick: target / win', () => {
   it('does not punish leftover output equal to a PREVIOUS level target after advancing', () => {
     const s = emptyState(1);
     s.levelIndex = 1; // LEVELS[0].target is now a stale value the old factory still makes
-    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: LEVELS[1].target, required: 5 });
+    addBuilding(s, { type: 'target', ax: 0, ay: 0, dir: 'right', target: LEVELS[1].target, required: 5 , par: 0});
     setBelt(s, -1, 1, belt('right'));
     s.items.push(createItem(1, LEVELS[0].target, -1, 1)); // e.g. still delivering 12 when the goal is 20
     setBelt(s, -3, 1, belt('right'));

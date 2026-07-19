@@ -1,20 +1,54 @@
-import { describe, it, expect } from 'vitest';
-import bcrypt from 'bcryptjs';
-import { verifyUser, loadUsers, User } from './users';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { mkdtempSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { registerUser, verifyUser, loadUsers, findUser, credentialError } from './users';
 
-describe('users', () => {
-  it('verifies a correct password against a hash', () => {
-    const users: User[] = [{ username: 'kid', hash: bcrypt.hashSync('apples', 8) }];
-    expect(verifyUser(users, 'kid', 'apples')).toBe(true);
-    expect(verifyUser(users, 'kid', 'wrong')).toBe(false);
-    expect(verifyUser(users, 'ghost', 'apples')).toBe(false);
+let dir: string;
+beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'bf-users-')); });
+
+describe('users (self-service accounts)', () => {
+  it('starts empty with no users.json', () => {
+    expect(loadUsers(dir)).toEqual([]);
   });
-  it('drops passwordless / malformed SEED_USERS entries', () => {
-    const prev = process.env.SEED_USERS;
-    process.env.SEED_USERS = 'dad:secret,ghost:,:nopass,kid:apples';
-    const users = loadUsers();
-    expect(users.map((u) => u.username).sort()).toEqual(['dad', 'kid']);
-    expect(verifyUser(users, 'ghost', '')).toBe(false); // no passwordless account minted
-    if (prev === undefined) delete process.env.SEED_USERS; else process.env.SEED_USERS = prev;
+
+  it('registers a user, persists it, and verifies the password (not the wrong one)', () => {
+    const users = loadUsers(dir);
+    const r = registerUser(dir, users, 'Abby', 'apples', 'easy');
+    expect(r.ok).toBe(true);
+    expect(existsSync(join(dir, 'users.json'))).toBe(true);
+    // reloading from disk sees the new account with its chosen mode
+    const reloaded = loadUsers(dir);
+    expect(reloaded.map((u) => u.username)).toEqual(['Abby']);
+    expect(findUser(reloaded, 'abby')?.mode).toBe('easy'); // case-insensitive lookup
+    expect(verifyUser(reloaded, 'Abby', 'apples')).toBe(true);
+    expect(verifyUser(reloaded, 'Abby', 'wrong')).toBe(false);
+    expect(verifyUser(reloaded, 'ghost', 'apples')).toBe(false);
+  });
+
+  it('rejects a duplicate username case-insensitively (would collide on the save file)', () => {
+    const users = loadUsers(dir);
+    expect(registerUser(dir, users, 'dad', 'secret', 'normal').ok).toBe(true);
+    const dup = registerUser(dir, users, 'DAD', 'other', 'normal');
+    expect(dup.ok).toBe(false);
+    if (!dup.ok) expect(dup.error).toMatch(/taken/i);
+    expect(loadUsers(dir).length).toBe(1); // not persisted twice
+  });
+
+  it('defaults an invalid/missing mode to normal', () => {
+    const users = loadUsers(dir);
+    registerUser(dir, users, 'kid', 'apples', 'banana' as unknown);
+    expect(findUser(loadUsers(dir), 'kid')?.mode).toBe('normal');
+  });
+
+  it('validates usernames and passwords, and never persists a rejected registration', () => {
+    expect(credentialError('a', 'apples')).toMatch(/username/i);        // too short
+    expect(credentialError('has space', 'apples')).toMatch(/username/i); // illegal char
+    expect(credentialError('kid', '123')).toMatch(/4 characters/i);      // password too short
+    expect(credentialError('kid', 'x'.repeat(65))).toMatch(/64/);        // password too long
+    expect(credentialError('kid_2', 'apples')).toBeNull();               // ok
+    const users = loadUsers(dir);
+    expect(registerUser(dir, users, 'a', 'apples', 'normal').ok).toBe(false);
+    expect(loadUsers(dir)).toEqual([]);
   });
 });
